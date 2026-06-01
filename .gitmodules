@@ -3,7 +3,7 @@
 	url = https://prongbang@github.com/prongbang/vane-rs
 [submodule "VaneSwift"]
 	path = VaneSwift
-	url = https://github.com/prongbang/VaneSwift
+	url = https://prongbang@github.com/prongbang/VaneSwift
 [submodule "VaneKotlin"]
 	path = VaneKotlin
 	url = https://prongbang@github.com/prongbang/VaneKotlin
