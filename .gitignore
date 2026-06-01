@@ -1,1 +1,4 @@
 .DS_Store
+.graphify_python
+graphify-out/
+.codex/
