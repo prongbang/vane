@@ -1,7 +1,8 @@
 # Vane Artifact Sizes
 
 Measured on 2026-06-12 after removing the `reqwest` HTTP/1.1/HTTP/2 fallback
-backend. The default profile is HTTP/3-only through `quiche` with certificate
+backend and stripping embedded bitcode/LLVM payloads from Swift static
+archives. The default profile is HTTP/3-only through `quiche` with certificate
 pinning, connection pooling, retry policy, Swift/Kotlin request helper work, the
 opt-in in-memory cookie jar, configurable request/response body limits, and the
 Swift static XCFramework migration.
@@ -13,9 +14,9 @@ pins, cookies, retries, connection pooling, and body limits.
 
 | Slice | File | Size |
 |-------|------|------|
-| macOS arm64/x86_64 | `VaneSwift/RustFramework.xcframework/macos-arm64_x86_64/libvane.a` | 45,558,840 bytes |
-| iOS simulator arm64/x86_64 | `VaneSwift/RustFramework.xcframework/ios-arm64_x86_64-simulator/libvane.a` | 56,986,840 bytes |
-| iOS arm64 | `VaneSwift/RustFramework.xcframework/ios-arm64/libvane.a` | 28,179,152 bytes |
+| macOS arm64/x86_64 | `VaneSwift/RustFramework.xcframework/macos-arm64_x86_64/libvane.a` | 39,965,144 bytes |
+| iOS simulator arm64/x86_64 | `VaneSwift/RustFramework.xcframework/ios-arm64_x86_64-simulator/libvane.a` | 45,369,992 bytes |
+| iOS arm64 | `VaneSwift/RustFramework.xcframework/ios-arm64/libvane.a` | 22,571,208 bytes |
 
 Small Swift profile: built with `make build_swift_small`. This profile removes
 the SPKI pin parser to reduce size. It supports HTTP/3 and
