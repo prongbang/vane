@@ -11,7 +11,7 @@ only. Legacy TCP protocol enum cases remain for source compatibility and fail
 with a clear unsupported-transport error.
 
 The repository is now a release-candidate codebase: local release automation
-builds and verifies the Rust, Android, and Swift artifacts, and opt-in live
+builds and verifies the Rust, Android, Swift, and Flutter artifacts, and opt-in live
 HTTP/3 tests cover request methods, headers, query params, body upload, cookies,
 pooling, and certificate pinning. Final production approval still requires
 external validation on real iOS/Android devices, clean app archive/import smoke
@@ -39,6 +39,7 @@ unsupported before release.
 | Cookies | Implemented as opt-in in-memory cookie jar | Decide persistence strategy in a future release |
 | rhttp-style body helpers | Implemented in Swift and Kotlin wrappers for UTF-8 text, JSON, bytes, and URL-encoded form bodies | Add multipart and streaming request bodies in the Rust/FFI layer |
 | rhttp-style response helpers | Implemented in Swift and Kotlin wrappers for status validation, bytes, strings/text, and JSON decoding | Add streaming responses, HTTP version, remote IP, and multi-value headers in the Rust/FFI layer |
+| Flutter support | Implemented as a Flutter plugin backed by the existing Swift/Kotlin wrappers and shared Rust core | Add publish metadata, live integration tests, and release packaging checks |
 
 ## rhttp-Inspired Parity Direction
 
@@ -69,8 +70,7 @@ Still intentionally future work:
 - TLS settings for min/max TLS version, SNI override, custom root certificate
   sources, and mutual TLS client certificates.
 - Dynamic DNS resolver callbacks.
-- Dart `http`/Dio compatibility layers, which are not directly applicable to
-  Vane unless a Dart/Flutter package is added later.
+- Dart `http`/Dio compatibility layers on top of the new Flutter package.
 
 ## Production Gates
 

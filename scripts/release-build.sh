@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUST_DIR="$ROOT_DIR/vane-rs"
 KOTLIN_DIR="$ROOT_DIR/VaneKotlin"
 SWIFT_DIR="$ROOT_DIR/VaneSwift"
+FLUTTER_DIR="$ROOT_DIR/vane_flutter"
 
 : "${CARGO_TARGET_DIR:=$HOME/.cargo-target}"
 export CARGO_TARGET_DIR
@@ -32,6 +33,17 @@ cd "$KOTLIN_DIR"
 
 cd "$SWIFT_DIR"
 swift test
+
+if [[ -d "$FLUTTER_DIR" ]]; then
+    cd "$FLUTTER_DIR"
+    flutter analyze
+    flutter test
+    (
+        cd example
+        flutter build apk --debug
+        flutter build ios --debug --simulator
+    )
+fi
 
 cd "$ROOT_DIR"
 if find VaneKotlin/library/src/main/jniLibs -name ".DS_Store" -print -quit | grep -q .; then

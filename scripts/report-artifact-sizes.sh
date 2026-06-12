@@ -48,3 +48,8 @@ aar="$ROOT_DIR/VaneKotlin/library/build/outputs/aar/library-release.aar"
 if [[ -f "$aar" ]]; then
     emit "| \`${aar#$ROOT_DIR/}\` | $(size_bytes "$aar") |"
 fi
+
+flutter_apk="$ROOT_DIR/vane_flutter/example/build/app/outputs/flutter-apk/app-debug.apk"
+if [[ -f "$flutter_apk" ]]; then
+    emit "| \`${flutter_apk#$ROOT_DIR/}\` | $(size_bytes "$flutter_apk") |"
+fi
