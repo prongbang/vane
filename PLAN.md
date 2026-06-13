@@ -39,7 +39,7 @@ unsupported before release.
 | Cookies | Implemented as opt-in in-memory cookie jar | Decide persistence strategy in a future release |
 | rhttp-style body helpers | Implemented in Swift and Kotlin wrappers for UTF-8 text, JSON, bytes, and URL-encoded form bodies | Add multipart and streaming request bodies in the Rust/FFI layer |
 | rhttp-style response helpers | Implemented in Swift and Kotlin wrappers for status validation, bytes, strings/text, and JSON decoding | Add streaming responses, HTTP version, remote IP, and multi-value headers in the Rust/FFI layer |
-| Flutter support | Implemented as a Flutter plugin backed by the existing Swift/Kotlin wrappers and shared Rust core | Add publish metadata, live integration tests, and release packaging checks |
+| Flutter support | Implemented as a Flutter plugin backed by Dart FFI into the shared Rust core; MethodChannel bindings remain as an explicit fallback | Add publish metadata, live integration tests, and release packaging checks |
 
 ## rhttp-Inspired Parity Direction
 

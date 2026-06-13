@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'package:vane_flutter/vane_flutter.dart';
+import 'package:vane_flutter/vane_flutter_ffi.dart';
 import 'package:vane_flutter/vane_flutter_method_channel.dart';
 import 'package:vane_flutter/vane_flutter_platform_interface.dart';
 
@@ -37,8 +38,12 @@ class MockVaneFlutterPlatform
 void main() {
   final initialPlatform = VaneFlutterPlatform.instance;
 
-  test('$MethodChannelVaneFlutter is the default instance', () {
-    expect(initialPlatform, isInstanceOf<MethodChannelVaneFlutter>());
+  test('$FfiVaneFlutter is the default instance', () {
+    expect(initialPlatform, isInstanceOf<FfiVaneFlutter>());
+  });
+
+  test('$MethodChannelVaneFlutter remains available as a fallback', () {
+    expect(MethodChannelVaneFlutter(), isA<MethodChannelVaneFlutter>());
   });
 
   test('client executes requests through the platform', () async {

@@ -1,14 +1,14 @@
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'vane_flutter.dart';
-import 'vane_flutter_method_channel.dart';
+import 'vane_flutter_ffi.dart';
 
 abstract class VaneFlutterPlatform extends PlatformInterface {
   VaneFlutterPlatform() : super(token: _token);
 
   static final Object _token = Object();
 
-  static VaneFlutterPlatform _instance = MethodChannelVaneFlutter();
+  static VaneFlutterPlatform _instance = FfiVaneFlutter();
 
   static VaneFlutterPlatform get instance => _instance;
 
