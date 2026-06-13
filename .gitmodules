@@ -7,3 +7,6 @@
 [submodule "VaneKotlin"]
 	path = VaneKotlin
 	url = https://prongbang@github.com/prongbang/VaneKotlin
+[submodule "vane_flutter"]
+	path = vane_flutter
+	url = https://github.com/prongbang/vane_flutter.git
