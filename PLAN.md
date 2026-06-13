@@ -31,15 +31,15 @@ unsupported before release.
 | TLS 1.2 | Not supported by the HTTP/3-only transport | Document as unsupported |
 | TLS 1.3 | Provided by quiche | Validate CA loading and failures on all platforms |
 | Connection pooling | Implemented as opt-in HTTP/3 idle connection reuse | Validate on real mobile devices |
-| Interceptors | Partially implemented as Swift/Kotlin request, response, and error interceptor chains | Add broader platform tests and token-refresh examples |
+| Interceptors | Implemented as Swift/Kotlin/Flutter request, response, and error interceptor chains | Add broader platform tests and token-refresh examples |
 | Retry | Implemented as opt-in retry policy with backoff and idempotency rules | Add observability hooks if needed |
 | Certificate pinning | Implemented with host-scoped SPKI and cert DER pins for HTTP/3 | Validate on real mobile devices |
 | Proxy support | Unsupported in the HTTP/3-only build; `proxy_url` fails clearly because QUIC proxying needs MASQUE/CONNECT-UDP | Revisit only with a dedicated HTTP/3 proxy design |
 | Custom DNS resolution | Static host-to-IP overrides implemented; dynamic callbacks explicitly unsupported for the first production candidate | Revisit dynamic resolver hooks in a future release |
-| Cookies | Implemented as opt-in in-memory cookie jar | Decide persistence strategy in a future release |
-| rhttp-style body helpers | Implemented in Swift and Kotlin wrappers for UTF-8 text, JSON, bytes, and URL-encoded form bodies | Add multipart and streaming request bodies in the Rust/FFI layer |
-| rhttp-style response helpers | Implemented in Swift and Kotlin wrappers for status validation, bytes, strings/text, and JSON decoding | Add streaming responses, HTTP version, remote IP, and multi-value headers in the Rust/FFI layer |
-| Flutter support | Implemented as a Flutter plugin backed by Dart FFI into the shared Rust core; MethodChannel bindings remain as an explicit fallback | Add publish metadata, live integration tests, and release packaging checks |
+| Cookies | Implemented as opt-in cookie jar with optional file persistence | Validate persistence on real apps/devices |
+| rhttp-style body helpers | Implemented for UTF-8 text, JSON, bytes, URL-encoded form bodies, multipart bodies, upload-from-file paths, and upload progress callbacks | Add true chunked streaming callbacks if needed |
+| rhttp-style response helpers | Implemented for status validation, bytes, strings/text, JSON decoding, download-to-file response streaming, and download progress callbacks | Add HTTP version, remote IP, and multi-value headers |
+| Flutter support | Implemented as a Flutter plugin backed by Dart FFI into the shared Rust core, with a shared-client facade, per-request options, cancel/progress helpers, upload/download file helpers, and MethodChannel bindings as an explicit fallback | Add publish metadata, live integration tests, and release packaging checks |
 
 ## rhttp-Inspired Parity Direction
 
@@ -56,21 +56,25 @@ Already aligned or mostly aligned:
 - The HTTP/1.1/HTTP/2 fallback backend and `reqwest` dependency were removed;
   Vane's transport path is now the existing `quiche` HTTP/3 implementation.
 - Swift and Kotlin wrappers now expose rhttp-like text body, URL-encoded form
-  body, response bytes/string/JSON, and throw-on-unexpected-status helpers while
-  preserving the existing Vane request builder style.
+  body, multipart bodies, response bytes/string/JSON, upload-from-file,
+  download-to-file, upload/download progress callbacks, and
+  throw-on-unexpected-status helpers while preserving the existing Vane request
+  builder style.
+- Flutter now exposes both a reusable shared-client facade (`Vane.get`,
+  `Vane.postJson`, `Vane.uploadFile`, `Vane.download`) and the lower-level
+  builder API for advanced per-request control without giving up native
+  connection pooling.
 - The Rust release profile is size-first (`opt-level = "z"`, LTO, single
   codegen unit, stripped symbols, panic abort).
 
 Still intentionally future work:
-- Request cancellation tokens wired through Rust execution.
-- Upload and download progress callbacks.
-- Streaming request and response bodies across UniFFI.
-- Multipart form bodies with file/byte/text parts.
+- True chunked request/response streaming callbacks across UniFFI.
 - Response metadata for protocol version, remote IP, and multi-value headers.
 - TLS settings for min/max TLS version, SNI override, custom root certificate
   sources, and mutual TLS client certificates.
 - Dynamic DNS resolver callbacks.
-- Dart `http`/Dio compatibility layers on top of the new Flutter package.
+- Optional Dart `http`/Dio compatibility adapters on top of the new Flutter
+  package.
 
 ## Production Gates
 

@@ -28,4 +28,32 @@ abstract class VaneFlutterPlatform extends PlatformInterface {
   Future<void> closeClient(int handle) {
     throw UnimplementedError('closeClient() has not been implemented.');
   }
+
+  Future<void> setCertificatePins(int handle, String host, List<String> pins) {
+    throw UnimplementedError('setCertificatePins() has not been implemented.');
+  }
+
+  Future<int> createCancelToken() {
+    throw UnimplementedError('createCancelToken() has not been implemented.');
+  }
+
+  Future<void> cancelToken(int id) {
+    throw UnimplementedError('cancelToken() has not been implemented.');
+  }
+
+  Future<void> freeCancelToken(int id) {
+    throw UnimplementedError('freeCancelToken() has not been implemented.');
+  }
+
+  Future<int> createProgress() {
+    throw UnimplementedError('createProgress() has not been implemented.');
+  }
+
+  Future<VaneProgress> progressSnapshot(int id) {
+    throw UnimplementedError('progressSnapshot() has not been implemented.');
+  }
+
+  Future<void> freeProgress(int id) {
+    throw UnimplementedError('freeProgress() has not been implemented.');
+  }
 }

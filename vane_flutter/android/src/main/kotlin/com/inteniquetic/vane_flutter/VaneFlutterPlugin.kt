@@ -35,6 +35,7 @@ class VaneFlutterPlugin : FlutterPlugin, MethodCallHandler {
             "createClient" -> createClient(call, result)
             "execute" -> execute(call, result)
             "closeClient" -> closeClient(call, result)
+            "setCertificatePins" -> setCertificatePins(call, result)
             else -> result.notImplemented()
         }
     }
@@ -83,6 +84,24 @@ class VaneFlutterPlugin : FlutterPlugin, MethodCallHandler {
         result.success(null)
     }
 
+    private fun setCertificatePins(call: MethodCall, result: Result) {
+        val handle = call.requiredLong("handle")
+        val host = call.requiredString("host")
+        val pins = stringList(call.argument<Any?>("pins"))
+        val client = clients[handle]
+        if (client == null) {
+            result.error("VANE_INVALID_CLIENT", "No Vane client exists for handle $handle", null)
+            return
+        }
+
+        runCatching {
+            client.setCertificatePins(host, pins)
+            result.success(null)
+        }.onFailure { error ->
+            result.error("VANE_SET_CERTIFICATE_PINS", error.message, null)
+        }
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun configFromMap(map: Map<String, Any?>): VaneClientConfig {
         return createDefaultConfig().apply {
@@ -91,6 +110,7 @@ class VaneFlutterPlugin : FlutterPlugin, MethodCallHandler {
             dnsOverrides = stringMap(map["dnsOverrides"])
             certificatePins = stringListMap(map["certificatePins"])
             cookiesEnabled = boolValue(map["cookiesEnabled"], cookiesEnabled)
+            cookiePersistencePath = map["cookiePersistencePath"] as String?
             connectionPoolEnabled = boolValue(map["connectionPoolEnabled"], connectionPoolEnabled)
             maxIdleConnections = ulongValue(map["maxIdleConnections"], maxIdleConnections)
             connectionIdleTimeoutSeconds = ulongValue(
@@ -122,6 +142,10 @@ class VaneFlutterPlugin : FlutterPlugin, MethodCallHandler {
             headers = stringMap(map["headers"]),
             queryParams = stringMap(map["queryParams"]),
             body = map["body"] as ByteArray?,
+            bodyFilePath = map["bodyFilePath"] as String?,
+            responseBodyPath = map["responseBodyPath"] as String?,
+            cancelTokenId = ulongValue(map["cancelTokenId"], 0uL).takeIf { it != 0uL },
+            progressId = ulongValue(map["progressId"], 0uL).takeIf { it != 0uL },
             timeoutSeconds = nullableULongValue(map["timeoutSeconds"]),
             followRedirects = boolValue(map["followRedirects"], true)
         )
@@ -132,6 +156,7 @@ class VaneFlutterPlugin : FlutterPlugin, MethodCallHandler {
             "statusCode" to statusCode.toInt(),
             "headers" to headers,
             "body" to body,
+            "bodyFilePath" to bodyFilePath,
             "isSuccess" to isSuccess,
             "url" to url
         )
@@ -160,9 +185,13 @@ class VaneFlutterPlugin : FlutterPlugin, MethodCallHandler {
         return (value as? Map<Any?, Any?>)
             ?.mapKeys { it.key.toString() }
             ?.mapValues { entry ->
-                (entry.value as? List<Any?>)?.map { it.toString() } ?: emptyList()
+                stringList(entry.value)
             }
             ?: emptyMap()
+    }
+
+    private fun stringList(value: Any?): List<String> {
+        return (value as? List<Any?>)?.map { it.toString() } ?: emptyList()
     }
 
     private fun boolValue(value: Any?, fallback: Boolean): Boolean {
@@ -188,5 +217,9 @@ class VaneFlutterPlugin : FlutterPlugin, MethodCallHandler {
             is Number -> value.toLong()
             else -> throw IllegalArgumentException("Missing $key")
         }
+    }
+
+    private fun MethodCall.requiredString(key: String): String {
+        return argument<String>(key) ?: throw IllegalArgumentException("Missing $key")
     }
 }

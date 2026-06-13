@@ -24,6 +24,8 @@ public class VaneFlutterPlugin: NSObject, FlutterPlugin {
       execute(call, result: result)
     case "closeClient":
       closeClient(call, result: result)
+    case "setCertificatePins":
+      setCertificatePins(call, result: result)
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -81,6 +83,23 @@ public class VaneFlutterPlugin: NSObject, FlutterPlugin {
     }
   }
 
+  private func setCertificatePins(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    do {
+      let args = try requiredDictionary(call.arguments)
+      let handle = try requiredInt64(args["handle"])
+      let host = try requiredString(args["host"])
+      let pins = stringList(args["pins"])
+      guard let client = client(for: handle) else {
+        result(FlutterError(code: "VANE_INVALID_CLIENT", message: "No Vane client exists for handle \(handle)", details: nil))
+        return
+      }
+      try client.setCertificatePins(host: host, pins: pins)
+      result(nil)
+    } catch {
+      result(FlutterError(code: "VANE_SET_CERTIFICATE_PINS", message: "\(error)", details: nil))
+    }
+  }
+
   private func client(for handle: Int64) -> VaneClient? {
     lock.lock()
     defer { lock.unlock() }
@@ -94,6 +113,7 @@ public class VaneFlutterPlugin: NSObject, FlutterPlugin {
     config.dnsOverrides = stringMap(map["dnsOverrides"])
     config.certificatePins = stringListMap(map["certificatePins"])
     config.cookiesEnabled = boolValue(map["cookiesEnabled"], fallback: config.cookiesEnabled)
+    config.cookiePersistencePath = map["cookiePersistencePath"] as? String
     config.connectionPoolEnabled = boolValue(map["connectionPoolEnabled"], fallback: config.connectionPoolEnabled)
     config.maxIdleConnections = uint64Value(map["maxIdleConnections"], fallback: config.maxIdleConnections)
     config.connectionIdleTimeoutSeconds = uint64Value(
@@ -127,6 +147,10 @@ public class VaneFlutterPlugin: NSObject, FlutterPlugin {
       body: map["body"] as? FlutterStandardTypedData != nil
         ? (map["body"] as! FlutterStandardTypedData).data
         : map["body"] as? Data,
+      bodyFilePath: map["bodyFilePath"] as? String,
+      responseBodyPath: map["responseBodyPath"] as? String,
+      cancelTokenId: optionalUInt64Value(map["cancelTokenId"]),
+      progressId: optionalUInt64Value(map["progressId"]),
       timeoutSeconds: optionalUInt64Value(map["timeoutSeconds"]),
       followRedirects: boolValue(map["followRedirects"], fallback: true)
     )
@@ -161,8 +185,12 @@ public class VaneFlutterPlugin: NSObject, FlutterPlugin {
       return [:]
     }
     return map.reduce(into: [String: [String]]()) { result, entry in
-      result[entry.key] = (entry.value as? [Any])?.map { "\($0)" } ?? []
+      result[entry.key] = stringList(entry.value)
     }
+  }
+
+  private func stringList(_ value: Any?) -> [String] {
+    return (value as? [Any])?.map { "\($0)" } ?? []
   }
 
   private func boolValue(_ value: Any?, fallback: Bool) -> Bool {
@@ -212,6 +240,7 @@ private extension VaneResponse {
       "statusCode": Int(statusCode),
       "headers": headers,
       "body": FlutterStandardTypedData(bytes: body),
+      "bodyFilePath": bodyFilePath as Any,
       "isSuccess": isSuccess,
       "url": url
     ]

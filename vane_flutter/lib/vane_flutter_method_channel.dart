@@ -38,4 +38,16 @@ class MethodChannelVaneFlutter extends VaneFlutterPlatform {
       'handle': handle,
     });
   }
+
+  @override
+  Future<void> setCertificatePins(
+    int handle,
+    String host,
+    List<String> pins,
+  ) async {
+    await methodChannel.invokeMethod<void>(
+      'setCertificatePins',
+      <String, Object?>{'handle': handle, 'host': host, 'pins': pins},
+    );
+  }
 }
