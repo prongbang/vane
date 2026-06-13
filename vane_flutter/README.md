@@ -7,7 +7,7 @@ HTTP/3 core.
 
 - HTTP/3-only requests through the shared Rust/quiche backend
 - Stateful native clients for connection pooling and cookies
-- Production FFI transport that calls the Rust `vane_ffi_*` C ABI directly
+- Production FFI transport that calls the typed Rust `vane_ffi_*` C ABI directly
 - Dart request, response, and error interceptors
 - Optional retry, certificate pinning, DNS overrides, request limits, and
   response limits through `VaneConfiguration`
