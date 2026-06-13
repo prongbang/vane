@@ -20,7 +20,34 @@ small, fast, HTTP/3-only networking over QUIC.
 | --- | --- | --- | --- |
 | Android | `VaneKotlin/library` | `minSdk 33` | Kotlin coroutine API with packaged `libvane.so` files |
 | iOS/macOS | `VaneSwift` | iOS 13, macOS 10.15 | Swift Package with `RustFramework.xcframework` |
-| Flutter | `vane_flutter` | Flutter 3.3+, Dart 3.12+ | Dart FFI by default, MethodChannel fallback kept available |
+| Flutter | `vane_flutter` submodule | Flutter 3.3+, Dart 3.12+ | Dart FFI by default, MethodChannel fallback kept available |
+
+## Repository Setup
+
+Clone the repository with submodules so every platform package is available:
+
+```bash
+git clone --recurse-submodules https://github.com/prongbang/vane.git
+cd vane
+```
+
+If the repository was cloned without submodules, initialize them afterwards:
+
+```bash
+git submodule update --init --recursive
+```
+
+The current submodules are:
+
+| Path | Repository |
+| --- | --- |
+| `vane-rs` | `https://github.com/prongbang/vane-rs` |
+| `VaneSwift` | `https://github.com/prongbang/VaneSwift` |
+| `VaneKotlin` | `https://github.com/prongbang/VaneKotlin` |
+| `vane_flutter` | `https://github.com/prongbang/vane_flutter.git` |
+
+When updating a submodule, commit and push the submodule repository first, then
+commit the updated gitlink in this repository.
 
 ## Feature Matrix
 
@@ -407,7 +434,8 @@ let response = try await session.request("/upload", method: .post)
 
 ### Add The Package
 
-Use the local package or publish it to your package registry.
+Use the `vane_flutter` submodule as a local package, or publish it to your
+package registry.
 
 ```yaml
 dependencies:
