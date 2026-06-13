@@ -18,9 +18,8 @@ HTTP/3 core.
 - iOS support through the bundled `RustFramework.xcframework`
 - Legacy MethodChannel bindings remain available as an explicit fallback
 
-Proxy configuration is exposed for API compatibility, but the current
-HTTP/3-only backend rejects runtime proxy use until MASQUE/CONNECT-UDP support
-is implemented.
+Proxy configuration uses HTTP/3 MASQUE/CONNECT-UDP. Set `proxyUrl` to an HTTPS
+MASQUE proxy endpoint; classic HTTP CONNECT proxies are not supported for QUIC.
 
 ## Usage
 

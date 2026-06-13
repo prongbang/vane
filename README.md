@@ -10,8 +10,7 @@ small, fast, HTTP/3-only networking over QUIC.
 - HTTP/1.1 and HTTP/2 fallback code removed from the Rust core
 - TLS 1.3 through the HTTP/3 transport
 - HTTP/1.0 unsupported
-- Proxy fields exist for source compatibility, but HTTP/3 proxying is currently
-  rejected at runtime because it requires MASQUE/CONNECT-UDP support
+- HTTP/3 proxying is supported through HTTPS MASQUE/CONNECT-UDP proxies
 - Static DNS overrides are supported; dynamic DNS callback resolvers are not
   part of this production candidate
 
@@ -72,7 +71,7 @@ All platforms map to the same Rust configuration model:
 | `followRedirects` | Follow redirects |
 | `userAgent` | Default user agent |
 | `protocolMode` | Keep `HTTP3_ONLY` / `http3Only`; legacy enum cases fail clearly |
-| `proxyUrl`, `proxyAuthorization` | Present for API compatibility, rejected by HTTP/3 transport |
+| `proxyUrl`, `proxyAuthorization` | HTTPS MASQUE/CONNECT-UDP proxy URL and optional authorization |
 
 ## Performance Usage Rules
 
@@ -639,7 +638,8 @@ VANE_TEST_BASE_URL=https://<http3-enabled-host> swift test --package-path VaneSw
 ## Known Limitations
 
 - HTTP/3 only; HTTP/1.1 and HTTP/2 are intentionally removed
-- HTTP/3 proxy support is not implemented
+- Proxy support requires an HTTPS MASQUE/CONNECT-UDP proxy; classic HTTP CONNECT
+  proxies are not supported for QUIC
 - Dynamic DNS callback resolvers are not implemented
 - Swift/Kotlin high-level cancel-token wrappers are not exposed yet, although
   Flutter supports cancel tokens
