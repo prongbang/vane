@@ -46,7 +46,10 @@ been through a linker's dead-code elimination pass, so it is a ceiling on
 what a real iOS app binary will contain after Xcode links against the
 XCFramework and strips whatever the app doesn't reference, not a prediction
 of the exact IPA delta. The per-feature section below quantifies the gap
-using the `cdylib` byproduct (which *is* linked) as a proxy.
+using the `cdylib` byproduct (which *is* linked) as a proxy; **"iOS
+app-size impact" below now measures the real thing** by archiving an actual
+app against both XCFrameworks — the linked delta is 10.6x smaller than this
+table's `.a` delta suggests.
 
 Small Swift profile: built with `make build_swift_small`
 (`--no-default-features`, i.e. **zero** of `spki-pinning`, `tcp-fallback`,
@@ -88,6 +91,194 @@ newer (`rustc 1.93.1` vs whatever built the June numbers) and some Phase
 1-4 code landed since, both plausible explanations, neither re-verified here
 since it wasn't the object of this pass. It is the full-profile growth that
 matters for the CTO triggers, not this incidental improvement.
+
+## iOS app-size impact (measured 2026-07-29)
+
+**These are not the `.a` sizes above and must never be quoted
+interchangeably with them.** Everything in the "Swift XCFramework" table is
+an *unlinked* `ar` archive: a ceiling on what an app could contain, roughly
+an order of magnitude above what one actually does. This section is the
+measured other end — a real iOS app, archived for a real device, with the
+linker's dead-code elimination applied. It closes the "iOS has no
+measurement of record" gap in PERFORMANCE_PLAN.md Phase 5b.
+
+### What was built
+
+A throwaway single-screen SwiftUI app (`Probe`), one `Text` + one `Button`,
+built three ways from one identical source file gated on a compilation
+condition:
+
+| Variant | What the button does | Links |
+|---|---|---|
+| `none` | `URLSession.shared.data(from:)` GET | nothing extra (baseline) |
+| `small` | `try VaneSession().get(...)` | `RustFramework.small.xcframework` |
+| `full` | `try VaneSession().get(...)` | `RustFramework.xcframework` |
+
+`none` is the adopter's real counterfactual: an app that already makes an
+HTTPS GET with the OS-provided stack. The `small`/`full` variants go through
+`VaneSession()` → `createVaneClient()` → the Rust FFI, so the framework is
+genuinely reachable, not a dead-strippable bare `import`.
+
+The two vane variants consume `VaneSwift` exactly as a real adopter does —
+as a local SwiftPM package with the `binaryTarget` pointing at the
+XCFramework under test — using a copy of the repo's `Package.swift`
+(Alamofire and the test target stripped) and unmodified copies of
+`Sources/VaneSwift/*.swift`. No repo file was changed to take these
+measurements.
+
+### Linkage verification (not assumed)
+
+Archive builds are stripped (`STRIP_INSTALLED_PRODUCT=YES`,
+`STRIP_STYLE=all`), so a parallel `STRIP_INSTALLED_PRODUCT=NO` build of each
+vane variant was made purely to read its symbol table. `nm` on those:
+
+| Symbol group | `small` | `full` |
+|---|---:|---:|
+| `uniffi_vane_fn_func_*` exports | 17 | 17 |
+| `ffi_vane_rustbuffer_*` | 2 | 2 |
+| `quiche::*` (Rust-mangled) | 278 | 278 |
+| BoringSSL (`SSL_CTX_new` etc.) | present | present |
+| `rustls::*` | 0 | 828 |
+| `hyper::*` | 0 | 540 |
+| `tokio::*` | 0 | 689 |
+| `reqwest::*` | 0 | 201 |
+| `ring_core_*` | 0 | 73 |
+
+This is the confirmation that (a) the framework really is linked in — the
+UniFFI exports and all 278 `quiche` symbols survive dead-code stripping in
+both — and (b) the two profiles differ by exactly the `tcp-fallback` stack
+and nothing else. It also re-confirms independently that BoringSSL is
+present in *both* profiles via `quiche`, consistent with the `spki-pinning`
+correction above.
+
+### Measured sizes (bytes)
+
+Release, `arm64`, `generic/platform=iOS`, `xcodebuild archive`, stripped.
+
+| Variant | app binary | `.app` (unsigned) | `.app` (ad-hoc signed) | `.ipa` (ad-hoc signed) |
+|---|---:|---:|---:|---:|
+| `none` | 76,336 | 77,190 | 97,939 | 14,373 |
+| `small` | 2,050,840 | 2,051,694 | 2,087,875 | 1,069,291 |
+| `full` | 4,562,840 | 4,563,694 | 4,619,491 | 2,464,569 |
+
+### The numbers that matter
+
+**Cost of adding vane to an iOS app** (vs. the same app using `URLSession`):
+
+| | app binary / install | `.ipa` / download |
+|---|---:|---:|
+| small profile (`build_swift_small`) | +1,974,504 (1.88 MiB) | +1,054,918 (1.01 MiB) |
+| full profile (`build_swift`, default) | +4,486,504 (4.28 MiB) | +2,450,196 (2.34 MiB) |
+
+**Delta between the two profiles** — what a user buys by dropping to
+`--no-default-features`:
+
+| | full − small |
+|---|---:|
+| app binary | **2,512,000 bytes (2.40 MiB / 2.51 MB)** |
+| `.app`, ad-hoc signed | 2,531,616 bytes |
+| `.ipa`, ad-hoc signed | **1,395,278 bytes (1.33 MiB / 1.40 MB)** |
+
+For scale: the same delta read off the `.a` files is 26,719,136 bytes. The
+unlinked archive overstates the real linked binary delta by **10.6x**, and
+the real download delta by **19.1x**. That is the concrete justification for
+the standing rule never to quote `.a` sizes as app impact.
+
+### Segment breakdown (on-disk `filesize`, stripped binary)
+
+| Segment | `none` | `small` | `full` | full − small |
+|---|---:|---:|---:|---:|
+| `__TEXT` | 32,768 | 1,753,088 | 3,784,704 | +2,031,616 |
+| `__DATA_CONST` | 16,384 | 114,688 | 245,760 | +131,072 |
+| `__DATA` | 16,384 | 16,384 | 32,768 | +16,384 |
+| `__LINKEDIT` | 10,800 | 166,680 | 499,608 | +332,928 |
+
+81% of the full-vs-small delta is executable code in `__TEXT`; the rest is
+relocations/metadata. Nothing is asset- or resource-driven, which is why
+app thinning is a no-op here (see caveats).
+
+### The `cdylib` proxy was right, and is now retired
+
+PERFORMANCE_PLAN.md's interim posture was "the linked cdylib proxy stands."
+It does. The `aarch64-apple-ios` cdylib byproduct predicted a
+`tcp-fallback`+`psl` delta of 2,252,756 bytes; the real archived app binary
+delta is 2,512,000 — the proxy under-predicted by 10.3%. In absolute terms
+the default-profile cdylib is 4,003,644 vs. vane's real 4,486,504-byte
+contribution to the app binary (proxy = 89.2% of real). The proxy is a good
+estimator and errs slightly optimistic; use these archived numbers instead
+now that they exist.
+
+### Method (reproducible)
+
+Xcode 26.1.1 (17B100), Swift 6.2.1, iOS SDK 26.1, deployment target 15.0,
+`SWIFT_OPTIMIZATION_LEVEL=-O`, `SWIFT_COMPILATION_MODE=wholemodule`,
+`DEAD_CODE_STRIPPING=YES`, `STRIP_STYLE=all`, `ARCHS=arm64`,
+`TARGETED_DEVICE_FAMILY=1`, no asset catalog. Project generated with
+XcodeGen 2.45.4.
+
+1. Copy `VaneSwift/Package.swift` (drop the Alamofire conditional and the
+   test target) and `VaneSwift/Sources/VaneSwift/*.swift` into a scratch
+   package; symlink `RustFramework.xcframework` there to the profile under
+   test (`RustFramework.xcframework` or `RustFramework.small.xcframework`).
+   Use one scratch package per profile — do not flip a symlink under a
+   single package, Xcode caches the resolved binary target.
+2. Generate an app project depending on that local package, with the
+   SwiftUI source above; a third project with no package for the baseline.
+3. Archive each:
+   ```
+   xcodebuild archive -project <P>.xcodeproj -scheme Probe \
+     -configuration Release -destination 'generic/platform=iOS' \
+     -archivePath <out>.xcarchive -derivedDataPath <dd> \
+     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+   ```
+4. `.ipa`: `mkdir -p Payload && cp -R <archive>/Products/Applications/Probe.app
+   Payload/ && codesign -f -s - --timestamp=none Payload/Probe.app &&
+   zip -q -r -X out.ipa Payload`.
+5. Segments: `otool -l <binary>` (`filesize` per `LC_SEGMENT_64`).
+   Linkage: repeat step 3 with `STRIP_INSTALLED_PRODUCT=NO` and run `nm`.
+
+### Caveats — which numbers are real and which are proxies
+
+**Real, measured, unqualified:** every byte count in the tables above, and
+therefore every delta. The deltas are the load-bearing figures and they are
+unaffected by the caveats below, because the same substitution applies to
+all three variants identically.
+
+**Signing could not be done properly in this environment.** No Apple
+Developer account is configured in Xcode and there are no provisioning
+profiles installed (`~/Library/MobileDevice/Provisioning Profiles` is
+empty), so `xcodebuild archive` with `CODE_SIGN_STYLE=Automatic
+DEVELOPMENT_TEAM=... -allowProvisioningUpdates` fails with *"No Account for
+Team"* / *"No profiles for 'com.example.vaneprobe' were found"*, and
+`xcodebuild -exportArchive` is therefore not reachable either. Substituted:
+unsigned archives, plus an ad-hoc `codesign -s -` pass to recover realistic
+signature overhead (a code-directory hash page per 4 KiB, ~1.2% of the
+binary). A properly signed `.ipa` would additionally carry
+`embedded.mobileprovision` (~10-20 KB) and a real CMS blob — a constant
+across all three variants, so it moves the absolute `.ipa` figures by a few
+tens of KB and the deltas not at all.
+
+**"Thinned" `.ipa`.** No thinning step was run, and none applies: the app is
+single-architecture `arm64` with no asset catalog, no on-demand resources
+and no bitcode (removed in Xcode 14+), so an exported thinned `.ipa` is the
+same payload. The `.ipa` figures are `zip -X` of `Payload/` at default
+deflate — a proxy for *download* size, not an App Store figure (Apple
+re-encrypts and re-compresses; the authoritative number is the App Thinning
+Size Report from a real upload). The `.app` byte counts are the install-size
+figures and need no such qualification.
+
+**Baseline choice.** `none` uses `URLSession` rather than making no network
+call at all, so the +1.97/+4.49 MB figures answer "what does replacing the
+OS stack with vane cost me" rather than "what does adding a network call
+cost me". `URLSession` is OS-provided, so the difference between those two
+framings is negligible (the whole baseline binary is 76 KB).
+
+**Not measured:** per-feature attribution *within* an archived app (only
+full-vs-small was archived, not the four feature combinations the `.a`
+/cdylib section isolates); macOS and simulator slices; and any app large
+enough for its own code to interact with vane's via LTO. A 76 KB baseline
+app is the cleanest possible measurement of vane in isolation, which is also
+its limitation.
 
 ## Android Native Libraries
 
