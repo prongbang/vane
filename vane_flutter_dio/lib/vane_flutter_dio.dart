@@ -203,35 +203,50 @@ class VaneDioAdapter implements HttpClientAdapter {
     RequestOptions options,
     Duration timeout,
   ) {
-    final message = error.message;
-    // ponytail: substring match on the core's English error text, because
-    // VaneHttpException carries no structured error kind across the FFI
-    // boundary. Upgrade path: a kind field on the FFI response / UniFFI error
-    // record, matched here instead of the message.
-    if (message.contains('timed out')) {
-      // A handshake or MASQUE tunnel that never came up died before the
-      // request went out; everything else timed out waiting on the peer.
-      if (message.contains('handshake timed out') ||
-          message.contains('establishment timed out')) {
-        return DioException.connectionTimeout(
-          timeout: timeout,
-          requestOptions: options,
-          error: error,
-        );
-      }
-      return DioException.receiveTimeout(
+    return switch (error.kind) {
+      // A connection that never came up died before the request went out;
+      // everything else timed out waiting on the peer. dio's sendTimeout has no
+      // counterpart — the core enforces one deadline over the whole request and
+      // cannot say which phase it expired in.
+      VaneErrorKind.connectTimeout => DioException.connectionTimeout(
         timeout: timeout,
         requestOptions: options,
         error: error,
-      );
-    }
-    // Everything the core reports is a transport failure — DNS, QUIC, TLS,
-    // I/O — plus the handful of plumbing errors the FFI layer raises itself.
-    return DioException.connectionError(
-      requestOptions: options,
-      reason: message,
-      error: error,
-    );
+      ),
+      VaneErrorKind.timeout => DioException.receiveTimeout(
+        timeout: timeout,
+        requestOptions: options,
+        error: error,
+      ),
+      VaneErrorKind.tls => DioException.badCertificate(
+        requestOptions: options,
+        error: error,
+      ),
+      // Normally unreachable: [fetch] checks its own cancel flag first. Kept so
+      // a cancel the core saw and dio's future did not still reports as one.
+      VaneErrorKind.cancelled => DioException.requestCancelled(
+        requestOptions: options,
+        reason: error,
+      ),
+      // Not the connection's fault and not fixable by retrying, which is what
+      // connectionError invites callers to do.
+      VaneErrorKind.invalidRequest ||
+      VaneErrorKind.bodyLimitExceeded ||
+      VaneErrorKind.protocolUnsupported => DioException(
+        type: DioExceptionType.unknown,
+        requestOptions: options,
+        message: error.message,
+        error: error,
+      ),
+      // Transport failures — DNS, QUIC, I/O, proxy — plus anything the core
+      // did not classify and the plumbing errors the FFI layer raises itself.
+      VaneErrorKind.transport || VaneErrorKind.unknown =>
+        DioException.connectionError(
+          requestOptions: options,
+          reason: error.message,
+          error: error,
+        ),
+    };
   }
 
   Never _throwClosed() {

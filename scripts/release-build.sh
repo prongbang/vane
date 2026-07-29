@@ -19,13 +19,28 @@ make build_swift
 (
     cd vane-bindgen
     cargo run --bin uniffi-bindgen generate "$CARGO_TARGET_DIR/release/libvane.dylib" \
-        --library \
         --language swift \
         --out-dir ../../VaneSwift/Sources/VaneSwift \
         --config uniffi.toml \
         --no-format
 )
 mv "$SWIFT_DIR/Sources/VaneSwift/vane.swift" "$SWIFT_DIR/Sources/VaneSwift/VaneClient.swift"
+# The XCFramework's vaneFFI.h is written by cargo-swift's own bundled
+# uniffi-bindgen, which is pinned to an older uniffi than this crate compiles
+# against: since uniffi 0.30 an object handle is a uint64_t, not a void*, so
+# that header no longer describes the scaffolding inside libvane.a and the
+# Swift package fails to build. Ship the header from the same uniffi that
+# produced the scaffolding. The modulemap next to it is version-independent
+# and cargo-swift's copy is left alone.
+# Both XCFrameworks, not just the one this script builds: the small profile is
+# tracked in git and differs only in cargo features, which do not change the
+# UniFFI surface, so it needs the same header. Leaving it out is how it ended up
+# shipping a uniffi 0.29 header against 0.31 scaffolding.
+for xcframework in "$SWIFT_DIR"/RustFramework*.xcframework; do
+    [ -d "$xcframework" ] || continue
+    find "$xcframework" -name vaneFFI.h \
+        -exec cp "$SWIFT_DIR/Sources/VaneSwift/vaneFFI.h" {} \;
+done
 rm -f "$SWIFT_DIR/Sources/VaneSwift/vaneFFI.h" "$SWIFT_DIR/Sources/VaneSwift/vaneFFI.modulemap"
 
 cd "$KOTLIN_DIR"

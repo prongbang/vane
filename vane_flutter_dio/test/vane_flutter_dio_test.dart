@@ -165,7 +165,10 @@ void main() {
   });
 
   test('core timeouts map onto dio timeout types', () async {
-    fake.failWith = const VaneHttpException('HTTP/3 request timed out');
+    fake.failWith = const VaneHttpException(
+      'HTTP/3 request timed out',
+      kind: VaneErrorKind.timeout,
+    );
     await expectLater(
       adapter.fetch(
         RequestOptions(path: 'https://example.com/thing'),
@@ -181,7 +184,10 @@ void main() {
       ),
     );
 
-    fake.failWith = const VaneHttpException('HTTP/3 handshake timed out');
+    fake.failWith = const VaneHttpException(
+      'HTTP/3 handshake timed out',
+      kind: VaneErrorKind.connectTimeout,
+    );
     await expectLater(
       adapter.fetch(
         RequestOptions(path: 'https://example.com/thing'),
@@ -199,7 +205,10 @@ void main() {
   });
 
   test('other core failures map onto connectionError', () async {
-    fake.failWith = const VaneHttpException('QUIC error: TlsFail');
+    fake.failWith = const VaneHttpException(
+      'QUIC error: TlsFail',
+      kind: VaneErrorKind.transport,
+    );
     await expectLater(
       adapter.fetch(
         RequestOptions(path: 'https://example.com/thing'),
@@ -213,6 +222,38 @@ void main() {
             .having((e) => e.error, 'error', isA<VaneHttpException>()),
       ),
     );
+  });
+
+  test('every error kind maps onto a dio exception type', () async {
+    // The whole point of the kind: no branch here reads the message, so the
+    // core is free to reword an error without breaking a dio caller.
+    const expected = <VaneErrorKind, DioExceptionType>{
+      VaneErrorKind.connectTimeout: DioExceptionType.connectionTimeout,
+      VaneErrorKind.timeout: DioExceptionType.receiveTimeout,
+      VaneErrorKind.tls: DioExceptionType.badCertificate,
+      VaneErrorKind.cancelled: DioExceptionType.cancel,
+      VaneErrorKind.invalidRequest: DioExceptionType.unknown,
+      VaneErrorKind.bodyLimitExceeded: DioExceptionType.unknown,
+      VaneErrorKind.protocolUnsupported: DioExceptionType.unknown,
+      VaneErrorKind.transport: DioExceptionType.connectionError,
+      VaneErrorKind.unknown: DioExceptionType.connectionError,
+    };
+    expect(expected.keys, containsAll(VaneErrorKind.values));
+
+    for (final entry in expected.entries) {
+      // Deliberately misleading text: only the kind may decide the type.
+      fake.failWith = VaneHttpException('handshake timed out', kind: entry.key);
+      await expectLater(
+        adapter.fetch(
+          RequestOptions(path: 'https://example.com/thing'),
+          null,
+          null,
+        ),
+        throwsA(
+          isA<DioException>().having((e) => e.type, '${entry.key}', entry.value),
+        ),
+      );
+    }
   });
 
   test('a cancel during body collection never reaches the core', () async {
