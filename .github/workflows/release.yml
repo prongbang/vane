@@ -61,9 +61,6 @@ jobs:
       - name: Verify generated artifacts are current
         run: git diff --exit-code -- vane-rs VaneKotlin VaneSwift
 
-      - name: Report artifact sizes
-        run: ./scripts/report-artifact-sizes.sh "$GITHUB_STEP_SUMMARY"
-
       - name: Upload Android AAR
         uses: actions/upload-artifact@v4
         with:
@@ -75,3 +72,12 @@ jobs:
         with:
           name: vane-swift-xcframework
           path: VaneSwift/RustFramework.xcframework
+
+      # Runs last: fails the job if a device-shipping ABI (arm64-v8a,
+      # armeabi-v7a) exceeds the 8 MB uncompressed native payload trigger
+      # (PLAN.md gate 11/12, PERFORMANCE_PLAN.md "Phase 5b done"). The AAR
+      # size is a secondary smoke alarm only and never fails this step.
+      # Placed after the uploads above so the oversized artifact is still
+      # available to download when this fails.
+      - name: Report and gate artifact sizes
+        run: ./scripts/report-artifact-sizes.sh "$GITHUB_STEP_SUMMARY"
