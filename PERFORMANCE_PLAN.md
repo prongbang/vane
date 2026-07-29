@@ -278,9 +278,8 @@ the HTTP client never connected to) — both fixed at the root, so the H3
 CTO rulings (both two-way doors, one-line reverts):
 - `tcp-fallback` stays DEFAULT-ON. An H3-only default fails closed on every
   UDP-blocking network, which is a correctness failure for a general-purpose
-  client, not a size trade; the small profile is the size lever. Revisit if
-  Phase 5 shows >4 MB added per Android ABI or the AAR crossing ~10 MB, or on
-  a TCP-path security regression without a quick fix.
+  client, not a size trade; the small profile is the size lever. Confirmed
+  after Phase 5 measured the cost at 2.30 MiB on arm64-v8a (60% of budget).
 - `psl` is a DEFAULT FEATURE the small profile drops (same precedent as
   `spki-pinning`), not an unconditional dependency. The cheap guard (Domain
   must contain a dot; no Domain on IP-literal origins) ships in BOTH
@@ -304,6 +303,43 @@ priority before the next tagged release), Phase 7.3 dio adapter (separate
 `vane_flutter_dio` package), Android JNI `rustls_platform_verifier::android::
 init_with_env` wiring in VaneKotlin (TCP fails closed there without it), and
 the cross-ABI backlog below.
+
+## Phase 5 done 2026-07-29 — measured, and the size triggers were amended
+
+Real builds (NDK 28.2, cargo-ndk 4.1.2, Xcode 26.1.1) against committed main.
+Per-feature cost, isolated: `tcp-fallback` **+2.30 MiB** on Android arm64-v8a
+and ~1.63 MiB on iOS device; `psl` ~540-565 KB per slice; `spki-pinning`
+~5 KB (BoringSSL is already linked via quiche regardless — the old note
+claiming the small profile saved size by dropping the SPKI parser was
+wrong, and `ARTIFACT_SIZES.md` is corrected).
+
+Measurement trap worth remembering: XCFramework `.a` deltas said
+`tcp-fallback` cost +23.6 MB. A `.a` is unlinked object code with no
+dead-code elimination — the linked `.dylib` byproduct of the same build
+gives +1.71 MB, matching Android. Never quote `.a` sizes as app impact.
+
+**The AAR trigger fired and was retired as the wrong metric.** The AAR sums
+four ABIs; App Bundle delivers one per device, and ~55% of its native bytes
+were emulator-only. Replacement, per CTO:
+- **Trigger: >8,000,000 bytes uncompressed native payload on a
+  device-shipping ABI** (arm64-v8a or armeabi-v7a). arm64-v8a is at
+  5,451,992 — ~47% headroom, roughly one more `tcp-fallback`-sized addition.
+- Unchanged: isolated `tcp-fallback` >4 MB on a device-shipping ABI, or a
+  TCP-path security regression without a quick fix.
+- Secondary smoke alarm only, NOT a demotion trigger: published AAR >20 MB →
+  audit contents for accidental payload.
+- If the payload trigger fires, re-run per-feature attribution and demote the
+  largest *optional* contributor — which may not be `tcp-fallback`.
+
+32-bit x86 is dropped from the release AAR (closes `PLAN.md` gate 11);
+x86_64 stays because removing it breaks `System.loadLibrary` at RUNTIME on
+Intel-host emulators, most cloud CI, and ChromeOS. Re-add x86 on any real
+consumer report.
+
+iOS has no trigger and no measurement of record: the 49.8 MB `.a` is an
+unlinked archive, not app impact. The number nobody has taken — archive a
+minimal SwiftUI app against the default vs small XCFramework and compare
+thinned arm64 `.ipa`. Interim posture: the linked cdylib proxy stands.
 
 ## Backlog surfaced by batch-3 reviews (cross-ABI, needs core + bindings)
 
