@@ -477,13 +477,12 @@ it carries no SLA.
   (request runs to completion, response discarded — contract still holds).
   Needs a public API to create/register a token before execute. Both the
   `http` and dio adapters hit this.
-- Structured error kind across the FFI boundary: `VaneError` is one opaque
-  `Generic(String)`, so the dio adapter classifies timeouts by substring-
-  matching the core's English error text ("handshake timed out" →
-  connectionTimeout, etc.). A `kind` discriminant on the error record would
-  make that robust — and would also let the H3 path distinguish transport
-  failures from config failures, which currently costs one wasted TCP
-  fallback attempt (noted in the Phase 6 ponytail comments).
+- ~~Structured error kind across the FFI boundary~~ — DONE 2026-07-29.
+  `VaneError` gained eight variants beside `Generic`; the dio adapter switches
+  on the kind instead of substring-matching English error text, and the
+  fallback rule now narrows (config failures no longer burn a TCP attempt)
+  and widens (POST/PATCH fall back when the handshake never completed)
+  correctly.
 - Negotiated protocol on `VaneResponse`: no field reports HTTP/1.1 vs h2 vs
   h3. dio 5.11's `ResponseBody.extraKeyHttpVersion` is left unset because of
   it, and `examples/protocol_check.rs` has to infer the protocol from
