@@ -192,7 +192,7 @@ Design decisions (locked unless overridden):
 |---|--------|-------|--------|
 | 7.1 | DevTools Network tab via `package:http_profile` | Record request/response events (method, headers, timings, body sizes) from the Dart layer, the same mechanism `cronet_http`/`cupertino_http` use. Pure Dart-side change in `vane_flutter` | M |
 | 7.2 | `package:http` adapter | `VaneHttpClient extends http.BaseClient` implementing `send()` → `StreamedResponse`. Unlocks most of the pub.dev ecosystem | S-M |
-| 7.3 | dio adapter | Implement dio's `HttpClientAdapter` (`fetch()` → `ResponseBody`), same pattern as `native_dio_adapter` | M |
+| 7.3 | dio adapter | Implement dio's `HttpClientAdapter` (`fetch()` → `ResponseBody`), same pattern as `native_dio_adapter`. Packaging decided 2026-07-29: SEPARATE package (`vane_flutter_dio/` beside `vane_flutter/`) so the base plugin does not carry dio as a dependency for non-dio users — mirrors the `native_dio_adapter` convention. Scheduled for batch 4, after 7.2's public API settles | M |
 | 7.4 | `dart:io` `HttpClient` interface | Decision-gated: the full `HttpClient`/`HttpClientRequest`/`HttpClientResponse` surface is large, and 7.2+7.3 already cover the ecosystem's real entry points. Build only when a consumer actually requires the `dart:io` interface (e.g. `HttpOverrides`) | L |
 
 - Acceptance: a request made through the `http` adapter and through dio shows
@@ -263,6 +263,17 @@ still need a live NewSessionTicket-issuing server / MASQUE proxy to confirm.
 Remaining: uniffi 0.31.2 bump (Phase 4.1 — pending task chip), Phase 5
 (size/opt-level measurement), Phase 6 (reqwest TCP fallback — lib.rs is now
 free), Phase 7 (DevTools + http/dio adapters).
+
+## Backlog surfaced by batch-3 reviews (cross-ABI, needs core + bindings)
+
+- Surface `set-cookie` values in responses: both transports divert them into
+  the cookie jar and never expose them, so `package:http` auth libraries see
+  no session header through the adapter. Needs `VaneFfiResponse` + UniFFI
+  record + both transports; documented as an adapter ceiling meanwhile.
+- Public pre-startable cancel token: the http adapter's `Abortable` wiring
+  cannot cancel the native side in the window before the token registers
+  (request runs to completion, response discarded — contract still holds).
+  Needs a public API to create/register a token before execute.
 
 ## Ordering and expected impact
 
