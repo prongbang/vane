@@ -503,30 +503,36 @@ item a naming collision hid — closed 2026-07-29, kept, see above and
 | 1 latency (1.1-1.4) | done |
 | 2 throughput (2.1-2.6) | done; 2.5's Dart-boundary copy deferred (needs a UniFFI record change) |
 | 3 Flutter FFI (3.1-3.4) | done |
-| 4 Kotlin/Swift | hand-written items done; the rest needs the uniffi bump |
+| 4 Kotlin/Swift | done — uniffi 0.31.2 landed, so Kotlin uses JNA direct mapping; 4.2/4.3 remain upstream-only |
 | **5a opt-level** | **done 2026-07-29 — measured, KEPT (see above)** |
 | 5b per-slice sizes | done; triggers amended by CTO |
 | 6 TCP fallback | done, plus Android trust store made real |
 | 7 Flutter ecosystem (7.1-7.3) | done — DevTools, `http`, dio |
 
-Open work, roughly by leverage (Phase 5a opt-level, formerly item 1 here,
-closed 2026-07-29 and dropped from this list — see above):
+Closed 2026-07-29, previously on this list: Phase 5a opt-level; uniffi
+0.29.3 → 0.31.2 (Kotlin now uses JNA direct mapping); CI per-ABI size
+reporting with the 8 MB gate; the structured error kind, which also fixed the
+fallback rule in both directions; the `unexpected_eof` diagnosis and its fix;
+the httpbin-shaped HTTP/3 endpoint hunt (pie.dev); and the iOS app-size
+measurement.
 
-1. **uniffi 0.29.3 → 0.31.2** — unblocks Kotlin JNA direct mapping (4.1) for
-   free; must regenerate both bindings in the same commit (CI checks
-   staleness). Task chip pending.
-2. **CI size reporting** — emit per-ABI payload and flag the 8 MB line, per
-   the CTO ruling, so the size posture stops depending on manual archaeology.
-3. **Cross-ABI backlog** (below) — the structured error kind is the highest
-   value: it would replace the dio adapter's substring matching on English
-   error text *and* stop a non-transport HTTP/3 failure from burning a TCP
-   attempt.
-4. **Upstream PR for rustls-platform-verifier #221** — prepared, not opened.
-5. Live-infra gaps that need endpoints we do not have: end-to-end session
-   resumption (needs a NewSessionTicket-issuing server), MASQUE inner MTU
-   under load (needs a live MASQUE proxy), an httpbin-shaped HTTP/3 endpoint
-   for the three live tests that fail on path mismatch, and an iOS app-size
-   measurement (archive a minimal app against both XCFramework profiles).
+Open work, roughly by leverage:
+
+1. **HTTP/3 does not follow redirects** (see the section above) — the two
+   transports return different things for the same URL, and which one you get
+   depends on whether UDP is available. The largest remaining correctness gap.
+2. **Cross-ABI backlog** (below): surface `set-cookie`, a pre-startable cancel
+   token, and a negotiated-protocol field on `VaneResponse`.
+3. **Upstream PR for rustls-platform-verifier #221** — patch ready at
+   `docs/upstream/`, not opened; needs a fork and is an outward-facing action.
+4. Live-infra gaps that still need infrastructure we do not have: end-to-end
+   session resumption (needs a server that issues a NewSessionTicket) and the
+   MASQUE inner MTU fix under load (needs a live MASQUE proxy).
+5. Housekeeping: `vane-rs/target` reached ~10 GB twice today and the machine
+   hit ENOSPC — a `cargo clean` policy or scheduled prune is overdue. The
+   emulator also wedged into a state where `adb devices` reported `device`
+   while every shell command hung; `adb kill-server` exposed it as `offline`.
+   Worth knowing before blaming a build.
 6. `unexpected_eof` — DIAGNOSED 2026-07-29, fix in flight. It is the hyper
    connection-pool checkout race: an idle connection whose FIN has arrived but
    has not been processed is handed out, the request is written to a
