@@ -343,10 +343,14 @@ x86_64 stays because removing it breaks `System.loadLibrary` at RUNTIME on
 Intel-host emulators, most cloud CI, and ChromeOS. Re-add x86 on any real
 consumer report.
 
-iOS has no trigger and no measurement of record: the 49.8 MB `.a` is an
-unlinked archive, not app impact. The number nobody has taken — archive a
-minimal SwiftUI app against the default vs small XCFramework and compare
-thinned arm64 `.ipa`. Interim posture: the linked cdylib proxy stands.
+iOS app-size impact, measured 2026-07-29 (details in `ARTIFACT_SIZES.md`):
+adding vane to an app costs **+1.88 MiB binary / +1.01 MiB download** on the
+small profile and **+4.28 MiB / +2.34 MiB** on the full one; full minus small
+is 2.40 MiB / 1.33 MiB. Linkage was verified by symbol inspection, not
+assumed. The 49.8 MB `.a` overstates the real binary delta by **10.6x** and
+the download delta by **19.1x** — never quote archive sizes as app impact.
+The interim cdylib proxy predicted 2.25 MB against a real 2.51 MB (10%
+optimistic, right order of magnitude) and is retired.
 
 ## Android: TCP fallback made real, 2026-07-29
 
