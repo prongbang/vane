@@ -192,7 +192,7 @@ Design decisions (locked unless overridden):
 |---|--------|-------|--------|
 | 7.1 | DevTools Network tab via `package:http_profile` | Record request/response events (method, headers, timings, body sizes) from the Dart layer, the same mechanism `cronet_http`/`cupertino_http` use. Pure Dart-side change in `vane_flutter` | M |
 | 7.2 | `package:http` adapter | `VaneHttpClient extends http.BaseClient` implementing `send()` → `StreamedResponse`. Unlocks most of the pub.dev ecosystem | S-M |
-| 7.3 | dio adapter | Implement dio's `HttpClientAdapter` (`fetch()` → `ResponseBody`), same pattern as `native_dio_adapter`. Packaging decided 2026-07-29: SEPARATE package (`vane_flutter_dio/` beside `vane_flutter/`) so the base plugin does not carry dio as a dependency for non-dio users — mirrors the `native_dio_adapter` convention. Scheduled for batch 4, after 7.2's public API settles | M |
+| 7.3 | dio adapter | DONE 2026-07-29: `vane_flutter_dio/` sibling package (dio 5.11, `publish_to: none` while it uses a path dependency), `VaneDioAdapter implements HttpClientAdapter`, cancelFuture → `VaneCancelToken`, 12 contract tests green. dio's three timeout budgets collapse onto vane's single whole-request deadline (largest wins). Ceilings documented: buffered upload, single-valued headers, no reason phrase, no `set-cookie` | M |
 | 7.4 | `dart:io` `HttpClient` interface | Decision-gated: the full `HttpClient`/`HttpClientRequest`/`HttpClientResponse` surface is large, and 7.2+7.3 already cover the ecosystem's real entry points. Build only when a consumer actually requires the `dart:io` interface (e.g. `HttpOverrides`) | L |
 
 - Acceptance: a request made through the `http` adapter and through dio shows
@@ -314,7 +314,20 @@ the cross-ABI backlog below.
 - Public pre-startable cancel token: the http adapter's `Abortable` wiring
   cannot cancel the native side in the window before the token registers
   (request runs to completion, response discarded — contract still holds).
-  Needs a public API to create/register a token before execute.
+  Needs a public API to create/register a token before execute. Both the
+  `http` and dio adapters hit this.
+- Structured error kind across the FFI boundary: `VaneError` is one opaque
+  `Generic(String)`, so the dio adapter classifies timeouts by substring-
+  matching the core's English error text ("handshake timed out" →
+  connectionTimeout, etc.). A `kind` discriminant on the error record would
+  make that robust — and would also let the H3 path distinguish transport
+  failures from config failures, which currently costs one wasted TCP
+  fallback attempt (noted in the Phase 6 ponytail comments).
+- Negotiated protocol on `VaneResponse`: no field reports HTTP/1.1 vs h2 vs
+  h3. dio 5.11's `ResponseBody.extraKeyHttpVersion` is left unset because of
+  it, and `examples/protocol_check.rs` has to infer the protocol from
+  response body length. Pairs with the "HTTP version, remote IP, multi-value
+  headers" response-metadata item already in `PLAN.md`.
 
 ## Ordering and expected impact
 

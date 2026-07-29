@@ -1,0 +1,24 @@
+name: vane_flutter_dio
+description: A dio HttpClientAdapter backed by the Vane HTTP/3 client.
+version: 0.0.1
+homepage: https://github.com/inteniquetic/vane
+# Not publishable while vane_flutter is a repo-local path dependency. To publish,
+# swap that path for a version constraint and drop this line.
+publish_to: none
+
+environment:
+  sdk: ^3.12.1
+  flutter: '>=3.3.0'
+
+dependencies:
+  dio: ^5.9.0
+  # Repo-local sibling package. Publishing this to pub.dev would need a version
+  # constraint (`vane_flutter: ^x.y.z`) instead of a path.
+  vane_flutter:
+    path: ../vane_flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  plugin_platform_interface: ^2.0.2
