@@ -113,7 +113,14 @@ payloads after 4.1.
 
 - Owner: dev-worker (done items); tech-lead owns the uniffi 0.31.2 bump.
 
-## Phase 5 — Build profile (size/speed tradeoff, evidence-gated)
+## Phase 5a — Build profile opt-level (size/speed tradeoff) — NOT DONE
+
+Naming collision warning: "Phase 5" ended up meaning two different things.
+This one — raising `opt-level` on the hot dependencies — was never attempted,
+and got lost behind the per-slice size *measurement* (now Phase 5b, done
+2026-07-29). It is still open and is the last unevaluated throughput lever.
+Now cheap to evaluate, because Phase 5b built the measurement harness it
+needs.
 
 - Per-package override, keeping `opt-level = "z"` on the top crate:
 
@@ -199,7 +206,7 @@ Design decisions (locked unless overridden):
   up in DevTools Network tab with correct timings; adapter test suites pass.
 - Owner: mobile-platform-dev (7.1), dev-worker (7.2, 7.3).
 
-## Status — batch 1 landed 2026-07-28 (uncommitted, pending human review)
+## Status — batch 1 landed 2026-07-28 (committed, d0d08ad)
 
 Measured with `examples/bench.rs` against `https://cloudflare-quic.com`
 (release builds, same machine/network, before = pre-batch baseline):
@@ -230,7 +237,7 @@ cloudflare-quic.com: transport-level pass; 3 tests fail on httpbin-shaped
 paths (`/get`, `/cookies/*`) that endpoint does not serve — a confirmed
 httpbin-style HTTP/3 endpoint is still needed (matches PLAN.md known risk).
 
-## Status — batch 2 landed 2026-07-28 (uncommitted, pending human review)
+## Status — batch 2 landed 2026-07-28 (committed, d0d08ad)
 
 Done: 1.4 TLS session resumption (ticket reuse only, NO 0-RTT; pinned hosts
 never resume — a resumed session restores the CACHED peer cert chain, so pin
@@ -304,7 +311,7 @@ priority before the next tagged release), Phase 7.3 dio adapter (separate
 init_with_env` wiring in VaneKotlin (TCP fails closed there without it), and
 the cross-ABI backlog below.
 
-## Phase 5 done 2026-07-29 — measured, and the size triggers were amended
+## Phase 5b done 2026-07-29 — per-slice sizes measured, size triggers amended
 
 Real builds (NDK 28.2, cargo-ndk 4.1.2, Xcode 26.1.1) against committed main.
 Per-feature cost, isolated: `tcp-fallback` **+2.30 MiB** on Android arm64-v8a
@@ -410,20 +417,41 @@ regression.
   response body length. Pairs with the "HTTP version, remote IP, multi-value
   headers" response-metadata item already in `PLAN.md`.
 
-## Ordering and expected impact
+## Where this stands — 2026-07-29
 
-| Order | Item | Impact | Risk |
-|-------|------|--------|------|
-| 1 | Phase 0 baseline | enables everything | none |
-| 2 | 1.1 send-before-read, 2.2 lock hoist, 2.3 reserve, 2.4 setsockopt, 2.5 body copies | high, all small diffs | low |
-| 3 | 1.2 config cache, 1.3 pool default, 1.4 resumption | high (cold + warm latency) | medium (behavior change 1.3) |
-| 4 | 3.1 worker isolate, 3.2 UAF fix | high for Flutter | low |
-| 5 | 2.1 buffer hoist, 2.6 MASQUE MTU, 3.3 zero-copy body | medium-high | medium |
-| 6 | Phase 4 Kotlin/Swift | medium | low |
-| 7 | Phase 5 opt-level | medium, size-gated | low (revertable) |
-| 8 | Phase 6 TCP fallback (reqwest) | protocol/TLS/proxy/pinning parity | medium-high |
-| 9 | Phase 7 Flutter ecosystem (DevTools, http, dio) | adoption | low-medium |
-| 10 | Re-run Phase 0, update `ARTIFACT_SIZES.md` + PLAN.md gate 14 | proof | none |
+Everything originally planned is done and committed except one item that a
+naming collision hid (Phase 5a). Measured result: warm pooled p50 **114 ms →
+58.7 ms (−49%)** against cloudflare-quic.com, cold ~450 ms → ~262 ms.
 
-Items 2 and 4 are safe to land in one PR each; nothing in them changes public
-behavior. Item 3 changes a default and needs a changelog note.
+| Phase | State |
+|-------|-------|
+| 0 baseline | done — `examples/bench.rs` |
+| 1 latency (1.1-1.4) | done |
+| 2 throughput (2.1-2.6) | done; 2.5's Dart-boundary copy deferred (needs a UniFFI record change) |
+| 3 Flutter FFI (3.1-3.4) | done |
+| 4 Kotlin/Swift | hand-written items done; the rest needs the uniffi bump |
+| **5a opt-level** | **NOT DONE — the one open item, see above** |
+| 5b per-slice sizes | done; triggers amended by CTO |
+| 6 TCP fallback | done, plus Android trust store made real |
+| 7 Flutter ecosystem (7.1-7.3) | done — DevTools, `http`, dio |
+
+Open work, roughly by leverage:
+
+1. **Phase 5a opt-level** — the last unevaluated throughput lever.
+2. **uniffi 0.29.3 → 0.31.2** — unblocks Kotlin JNA direct mapping (4.1) for
+   free; must regenerate both bindings in the same commit (CI checks
+   staleness). Task chip pending.
+3. **CI size reporting** — emit per-ABI payload and flag the 8 MB line, per
+   the CTO ruling, so the size posture stops depending on manual archaeology.
+4. **Cross-ABI backlog** (below) — the structured error kind is the highest
+   value: it would replace the dio adapter's substring matching on English
+   error text *and* stop a non-transport HTTP/3 failure from burning a TCP
+   attempt.
+5. **Upstream PR for rustls-platform-verifier #221** — prepared, not opened.
+6. Live-infra gaps that need endpoints we do not have: end-to-end session
+   resumption (needs a NewSessionTicket-issuing server), MASQUE inner MTU
+   under load (needs a live MASQUE proxy), an httpbin-shaped HTTP/3 endpoint
+   for the three live tests that fail on path mismatch, and an iOS app-size
+   measurement (archive a minimal app against both XCFramework profiles).
+7. `unexpected_eof` roughly 1 in 3 on some hosts over HTTP/1.1 — pre-existing
+   rustls/reqwest behavior, not diagnosed.
