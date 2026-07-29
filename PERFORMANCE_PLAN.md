@@ -264,6 +264,47 @@ Remaining: uniffi 0.31.2 bump (Phase 4.1 — pending task chip), Phase 5
 (size/opt-level measurement), Phase 6 (reqwest TCP fallback — lib.rs is now
 free), Phase 7 (DevTools + http/dio adapters).
 
+## Status — batch 3 landed 2026-07-29 (committed)
+
+Phase 6 (TCP fallback) and Phase 7.1/7.2 (DevTools, `package:http` adapter)
+shipped. Three adversarial security rounds plus two correctness rounds ran
+against the TCP path before merge; the findings and their fixes are in the
+`vane-rs` commit message. Two of the HIGH findings were pre-existing bugs
+affecting HTTP/3 as well (cookie `Domain` accepting a public suffix, and a
+URL-parser differential that made pin/header/cookie decisions about a host
+the HTTP client never connected to) — both fixed at the root, so the H3
+`:authority`/SNI path is hardened too.
+
+CTO rulings (both two-way doors, one-line reverts):
+- `tcp-fallback` stays DEFAULT-ON. An H3-only default fails closed on every
+  UDP-blocking network, which is a correctness failure for a general-purpose
+  client, not a size trade; the small profile is the size lever. Revisit if
+  Phase 5 shows >4 MB added per Android ABI or the AAR crossing ~10 MB, or on
+  a TCP-path security regression without a quick fix.
+- `psl` is a DEFAULT FEATURE the small profile drops (same precedent as
+  `spki-pinning`), not an unconditional dependency. The cheap guard (Domain
+  must contain a dot; no Domain on IP-literal origins) ships in BOTH
+  profiles; psl layers public-suffix rejection on top. Small-profile cookie
+  posture is a tested fact, not a documented claim.
+
+Verification: cargo test 60/60 (default) and 45/45 (`--no-default-features`),
+clippy `-D warnings` both configs, shipping dependency tree for the small
+profile contains zero TCP/psl crates, no exported ABI change across all three
+batches. `flutter test` 34 offline / 37 live. Live HTTP/3: transport tests
+pass; the three httpbin-shaped tests still fail on cloudflare-quic.com by
+endpoint mismatch. Bench after batch 3: cold ~262 ms, warm pool-on p50
+**58.7 ms** (baseline 114 ms, −49%), pool-off p50 ~260 ms.
+`examples/protocol_check.rs` asserts h2 is genuinely negotiated — added
+because ALPN was silently absent and no unit test could catch it (every mode
+returns 200 over HTTP/1.1).
+
+Remaining: uniffi 0.31.2 bump (Phase 4.1 — task chip pending), Phase 5
+per-slice size measurement (now the gate on the CTO revisit triggers, top
+priority before the next tagged release), Phase 7.3 dio adapter (separate
+`vane_flutter_dio` package), Android JNI `rustls_platform_verifier::android::
+init_with_env` wiring in VaneKotlin (TCP fails closed there without it), and
+the cross-ABI backlog below.
+
 ## Backlog surfaced by batch-3 reviews (cross-ABI, needs core + bindings)
 
 - Surface `set-cookie` values in responses: both transports divert them into
