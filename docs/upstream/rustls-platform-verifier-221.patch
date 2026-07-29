@@ -1,0 +1,86 @@
+From: Vane maintainers
+Subject: [PATCH] android: report CertPathValidatorException by reason instead of
+ assuming revocation
+
+Android's PKIXRevocationChecker throws CertPathValidatorException for
+undeterminable revocation status, not only for a definitive revocation, and
+verifyCertificateChain maps every such exception to StatusCode.Revoked. The
+existing escape hatch for this is guarded by BuildConfig.TEST, so released
+artifacts still report Revoked and callers cannot reach a CRL-only host.
+
+Let's Encrypt retired OCSP in August 2025 and Google Trust Services followed,
+so certificates with a CRL distribution point and no OCSP responder URL are
+ordinary and a growing share of the web. For those, Android throws
+"Certificate does not specify OCSP responder" with BasicReason.UNSPECIFIED.
+SOFT_FAIL does not cover it — that option forgives network errors and
+tryLater/internalError responder answers, not a missing responder.
+
+Reporting undeterminable status as revoked deters no attacker. An attacker
+holding a genuinely revoked certificate reaches the same branch simply by
+omitting the staple, and nothing here enforces Must-Staple. Separately,
+network-fetched revocation is already inoperative on modern Android: OCSP
+responder URLs are cleartext http:// per RFC 6960 and usesCleartextTraffic
+defaults to false for targetSdk 28+, so the fetch fails and SOFT_FAIL forgives
+it. Measured on an API 35 emulator:
+
+    cleartextPermittedGlobally=false
+    cleartextPermitted(ocsps.ssl.com)=false
+    GET http://ocsps.ssl.com/ -> IOException: Cleartext HTTP traffic to
+      ocsps.ssl.com not permitted
+
+and a genuinely revoked host (revoked-rsa-dv.ssl.com, CA still serving OCSP)
+connects successfully both before and after this change, with an entry log in
+the catch block never firing — the exception is not thrown at all.
+
+So the strict mapping costs availability and buys nothing. A stapled response
+that says revoked still reports REVOKED and is still refused, which is the
+case that actually works today and is preserved here.
+
+This supersedes the BuildConfig.TEST workaround and closes #221. It is
+narrower than #179 and independent of it: #179 can still add fetch-capable
+revocation later without conflicting.
+
+Closes: #221
+
+--- a/android/rustls-platform-verifier/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt
++++ b/android/rustls-platform-verifier/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt
+@@
+             } catch (e: CertPathValidatorException) {
+-                // LetsEncrypt no longer include OCSP information (as OCSP is being deprecated) which Android is not
+-                // happy with since it *only* tries OCSP by default. We aren't 100% decided on how to fix this yet for real
+-                // (see https://github.com/rustls/rustls-platform-verifier/pull/179) so for now we implement an out for
+-                // tests to allow regular maintenance to proceed.
+-                if (BuildConfig.TEST && e.reason == CertPathValidatorException.BasicReason.UNSPECIFIED) {
+-                    return VerificationResult(StatusCode.Ok)
+-                }
+-
+-                return VerificationResult(StatusCode.Revoked, e.toString())
++                // Only a definitive "this certificate was revoked" verdict may
++                // block the connection. Android lands in this catch for
++                // undeterminable status too — above all `UNSPECIFIED`, which is
++                // what it throws ("Certificate does not specify OCSP responder")
++                // for an end entity carrying no OCSP responder URL. SOFT_FAIL
++                // does not cover that: it forgives network errors and
++                // tryLater/internalError, not a missing responder.
++                //
++                // A stapled response that says "revoked" still reports REVOKED
++                // and is still refused, which is the case that actually matters.
++                if (e.reason == CertPathValidatorException.BasicReason.REVOKED) {
++                    return VerificationResult(StatusCode.Revoked, e.toString())
++                }
++
++                Log.w(TAG, "revocation status undeterminable (${e.reason}), allowing: $e")
+             }
+
+Notes for the reviewer, not part of the commit message:
+
+- No API change: StatusCode values, the verifyCertificateChain signature and
+  VerificationResult fields are untouched, so src/verification/android.rs needs
+  no corresponding change.
+- Falling out of the catch reaches the existing `return
+  VerificationResult(StatusCode.Ok)` at the end of the method, which is the
+  same path taken when revocation checking is skipped on old API levels.
+- Verified downstream on an API 35 arm64 emulator: www.cloudflare.com and
+  badssl.com (both CRL-only) go from Revoked to HTTP 200; example.com, which
+  still staples, continues to work; a self-signed certificate is still
+  rejected by pass 1.
