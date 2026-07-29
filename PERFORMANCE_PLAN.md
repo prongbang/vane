@@ -397,6 +397,38 @@ HTTP/1.1 — pre-existing rustls/reqwest behavior, not Android-specific; the
 instrumented test retries 3× with a comment on why that cannot mask an init
 regression.
 
+## New gap found 2026-07-29: HTTP/3 does not follow redirects
+
+`follow_redirects` is honoured only on the TCP path (`redirect_target` /
+`follow_and_read` in `tcp.rs`); `lib.rs` has no `LOCATION` handling at all.
+This was known as a Phase 6 behavior difference, but its consequences were
+not: a request that redirects simply returns the 3xx over HTTP/3 while the
+same request follows it over TCP, so **the two transports return different
+things for the same URL** — and in `Http3ThenHttp2ThenHttp1` which one you get
+depends on whether UDP is available.
+
+It surfaced while hunting a live test endpoint: `/cookies/set/{n}/{v}` answers
+302 on every faithful httpbin, so no correct endpoint can make
+`live_http3_cookies_when_base_url_is_set` pass over H3. Options: implement
+redirect following on the H3 path (real parity, and the TCP loop is a working
+model to copy — including its pin/downgrade/header rules, which H3 would need
+too), or relax that assertion and document the difference. Prefer the former;
+transport-dependent behavior is the kind of thing that bites in production and
+not in tests.
+
+## Live test endpoints, settled 2026-07-29
+
+`https://pie.dev` is httpbin-shaped AND HTTP/3-capable — 3 of the 4 live H3
+tests pass against it (the 4th is the redirect gap above, not the endpoint).
+Verified non-working: httpbin.org, httpbingo.org, httpbin.dev,
+postman-echo.com (no h3); httpbun.com (advertises `alt-svc` h3, QUIC listener
+refuses); nghttp2.org/httpbin (real httpbin over h3, but its path prefix
+breaks `Url::join` against the tests' absolute paths).
+
+Keep the perf baseline on `cloudflare-quic.com`: pie.dev's origin is not the
+edge (warm p50 ~324 ms vs ~59 ms), so it is a correctness endpoint only, and
+it carries no SLA.
+
 ## Backlog surfaced by batch-3 reviews (cross-ABI, needs core + bindings)
 
 - Surface `set-cookie` values in responses: both transports divert them into
@@ -457,5 +489,13 @@ Open work, roughly by leverage:
    under load (needs a live MASQUE proxy), an httpbin-shaped HTTP/3 endpoint
    for the three live tests that fail on path mismatch, and an iOS app-size
    measurement (archive a minimal app against both XCFramework profiles).
-7. `unexpected_eof` roughly 1 in 3 on some hosts over HTTP/1.1 — pre-existing
-   rustls/reqwest behavior, not diagnosed.
+7. `unexpected_eof` — DIAGNOSED 2026-07-29, fix in flight. It is the hyper
+   connection-pool checkout race: an idle connection whose FIN has arrived but
+   has not been processed is handed out, the request is written to a
+   half-closed socket, and the read returns EOF. Measured 13.3% at the race
+   window, 0% with a single retry, 0% with pooling off, and identical with a
+   clean `close_notify` — so rustls is not the cause and making it tolerate
+   EOF would only rename the bug. hyper's own retry cannot cover it: it
+   retries only `Retryable`, and ours arrives as `SendRequest` because the
+   message was already committed. **The TCP path is simply missing the
+   reuse-retry rule the H3 path has had since batch 1.**
