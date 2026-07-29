@@ -113,16 +113,16 @@ payloads after 4.1.
 
 - Owner: dev-worker (done items); tech-lead owns the uniffi 0.31.2 bump.
 
-## Phase 5a — Build profile opt-level (size/speed tradeoff) — NOT DONE
+## Phase 5a — Build profile opt-level (size/speed tradeoff) — DONE 2026-07-29, KEPT
 
 Naming collision warning: "Phase 5" ended up meaning two different things.
 This one — raising `opt-level` on the hot dependencies — was never attempted,
-and got lost behind the per-slice size *measurement* (now Phase 5b, done
-2026-07-29). It is still open and is the last unevaluated throughput lever.
-Now cheap to evaluate, because Phase 5b built the measurement harness it
-needs.
+and got lost behind the per-slice size *measurement* (Phase 5b, done
+2026-07-29). It was the last unevaluated throughput lever; now evaluated and
+closed. Full numbers, method, and the `ring` exclusion evidence are in
+`ARTIFACT_SIZES.md` ("Phase 5a — opt-level override"); summary here.
 
-- Per-package override, keeping `opt-level = "z"` on the top crate:
+Landed, keeping `opt-level = "z"` on the top crate:
 
 ```toml
 [profile.release.package.quiche]
@@ -131,11 +131,48 @@ opt-level = 3
 opt-level = 3
 ```
 
-- BoringSSL C code is compiled by `cc` with its own flags and is unaffected;
-  this targets quiche's Rust packet/QPACK code.
-- Process: build all slices, record deltas in `ARTIFACT_SIZES.md`, keep only if
-  the throughput gain justifies the size growth per the existing size budget.
-- Owner: devops (measurement), cto (accept/reject call).
+`ring` (in the tree via rustls for `tcp-fallback`) was considered and
+excluded: its hot AEAD/hash/curve primitives are hand-written assembly
+(`ring-0.17.14`'s `build.rs` compiles ~90 asm/perlasm files per target arch),
+compiled by `cc`/an assembler and already outside rustc's `opt-level` —
+verified in the vendored source, not assumed. Same reasoning as BoringSSL's
+C code (unaffected by these overrides, since it targets `quiche`'s and
+`sha2`'s Rust code only).
+
+- `examples/bench.rs` against `cloudflare-quic.com`: **no resolvable
+  difference**, as flagged as a real possibility going in — RTT-dominated,
+  and `bench.rs`'s unpinned default config never even calls `sha2` (that path
+  only runs for `spki-pinning`/cert-DER pin checks). Reported honestly rather
+  than reading noise as a win: warm pool-on p50 moved 73.3&rarr;62.2 ms
+  across 3 runs/side, but the CPU delta below is a few hundred ns/request —
+  five orders of magnitude too small to explain an 11 ms gap.
+- Resolved instead by timing the two targeted dependencies directly
+  (throwaway example, not committed, deleted after use), calling `quiche`'s
+  own public QPACK codec and `sha2::Sha256::digest` with no network
+  involved, 500k iters/side: QPACK encode -8.7%, QPACK decode -12.2%,
+  SHA-256 (550-byte buffer, matching `sha256_pin()`'s real usage) **-51.4%
+  (~2.06x)**. Real, reproducible, low run-to-run variance.
+- Size, same-session before/after, default features: Android arm64-v8a
+  native payload (the CI gate's sum of `libvane.so` + `libquiche-*.so`)
+  5,468,096 &rarr; 5,696,992 bytes (+4.19%, 68%&rarr;71% of the 8,000,000-byte
+  gate, still comfortable headroom) — but `libvane.so` itself, the file
+  Android actually loads, grew only +0.84%; 81% of the raw delta is
+  quiche's own never-loaded cdylib build byproduct getting bigger (its
+  `crate-type` list makes Cargo build it regardless of whether vane needs
+  it — a separate, pre-existing packaging question, not this change's cost,
+  noted for the backlog). iOS device linked `libvane.dylib`: 4,003,636
+  &rarr; 4,067,964 bytes (+1.61%). Neither device-shipping ABI is pushed
+  toward its gate in a decisive way.
+- Verdict: **KEPT**. Real, directly-measured CPU wins on both targeted
+  packages for a size cost too small to threaten the existing budget.
+- Gates: `cargo fmt --check` clean; `cargo clippy --release --all-targets --
+  -D warnings` clean, both default and `--no-default-features`; `cargo test
+  --release` 64/64 default, 47/47 `--no-default-features`; live
+  `examples/protocol_check.rs` against `cloudflare-quic.com` — ok. Not
+  committed by this pass.
+- Owner: devops (measurement), cto (accept/reject call) — measured and
+  recommended KEEP; size deltas are small enough that this did not need to
+  escalate for a separate accept/reject call.
 
 ## Phase 6 — TCP fallback backend: HTTP/1.1 + HTTP/2 + TLS 1.2/1.3 (feature)
 
@@ -455,8 +492,9 @@ it carries no SLA.
 
 ## Where this stands — 2026-07-29
 
-Everything originally planned is done and committed except one item that a
-naming collision hid (Phase 5a). Measured result: warm pooled p50 **114 ms →
+Everything originally planned is done and committed, including Phase 5a (the
+item a naming collision hid — closed 2026-07-29, kept, see above and
+`ARTIFACT_SIZES.md`). Measured result: warm pooled p50 **114 ms →
 58.7 ms (−49%)** against cloudflare-quic.com, cold ~450 ms → ~262 ms.
 
 | Phase | State |
@@ -466,30 +504,30 @@ naming collision hid (Phase 5a). Measured result: warm pooled p50 **114 ms →
 | 2 throughput (2.1-2.6) | done; 2.5's Dart-boundary copy deferred (needs a UniFFI record change) |
 | 3 Flutter FFI (3.1-3.4) | done |
 | 4 Kotlin/Swift | hand-written items done; the rest needs the uniffi bump |
-| **5a opt-level** | **NOT DONE — the one open item, see above** |
+| **5a opt-level** | **done 2026-07-29 — measured, KEPT (see above)** |
 | 5b per-slice sizes | done; triggers amended by CTO |
 | 6 TCP fallback | done, plus Android trust store made real |
 | 7 Flutter ecosystem (7.1-7.3) | done — DevTools, `http`, dio |
 
-Open work, roughly by leverage:
+Open work, roughly by leverage (Phase 5a opt-level, formerly item 1 here,
+closed 2026-07-29 and dropped from this list — see above):
 
-1. **Phase 5a opt-level** — the last unevaluated throughput lever.
-2. **uniffi 0.29.3 → 0.31.2** — unblocks Kotlin JNA direct mapping (4.1) for
+1. **uniffi 0.29.3 → 0.31.2** — unblocks Kotlin JNA direct mapping (4.1) for
    free; must regenerate both bindings in the same commit (CI checks
    staleness). Task chip pending.
-3. **CI size reporting** — emit per-ABI payload and flag the 8 MB line, per
+2. **CI size reporting** — emit per-ABI payload and flag the 8 MB line, per
    the CTO ruling, so the size posture stops depending on manual archaeology.
-4. **Cross-ABI backlog** (below) — the structured error kind is the highest
+3. **Cross-ABI backlog** (below) — the structured error kind is the highest
    value: it would replace the dio adapter's substring matching on English
    error text *and* stop a non-transport HTTP/3 failure from burning a TCP
    attempt.
-5. **Upstream PR for rustls-platform-verifier #221** — prepared, not opened.
-6. Live-infra gaps that need endpoints we do not have: end-to-end session
+4. **Upstream PR for rustls-platform-verifier #221** — prepared, not opened.
+5. Live-infra gaps that need endpoints we do not have: end-to-end session
    resumption (needs a NewSessionTicket-issuing server), MASQUE inner MTU
    under load (needs a live MASQUE proxy), an httpbin-shaped HTTP/3 endpoint
    for the three live tests that fail on path mismatch, and an iOS app-size
    measurement (archive a minimal app against both XCFramework profiles).
-7. `unexpected_eof` — DIAGNOSED 2026-07-29, fix in flight. It is the hyper
+6. `unexpected_eof` — DIAGNOSED 2026-07-29, fix in flight. It is the hyper
    connection-pool checkout race: an idle connection whose FIN has arrived but
    has not been processed is handed out, the request is written to a
    half-closed socket, and the read returns EOF. Measured 13.3% at the race

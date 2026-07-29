@@ -452,3 +452,112 @@ Everything in this section built successfully in this environment; nothing
 is estimated or unmeasured. Toolchain used: `rustc 1.93.1`, `cargo-ndk
 4.1.2`, NDK 28.2.13676358 (`ANDROID_NDK_HOME`), `cargo-swift 0.9.0`, Xcode
 26.1.1, Gradle 8.13 (wrapper) / AGP via `compileSdk 36`.
+
+## Phase 5a — opt-level override, measured and KEPT 2026-07-29
+
+PERFORMANCE_PLAN.md Phase 5a: the workspace release profile is
+`opt-level = "z"` (size-first), applied to dependencies too, including
+`quiche`'s packet/QPACK code and `sha2`. Added, same machine/toolchain as
+the per-feature attribution pass above, same `Cargo.lock`:
+
+```toml
+[profile.release.package.quiche]
+opt-level = 3
+[profile.release.package.sha2]
+opt-level = 3
+```
+
+`ring` (pulled in via rustls for `tcp-fallback`) was considered and left
+out. Checked the vendored source rather than assuming: `ring-0.17.14`'s
+`build.rs` compiles ~90 hand-written assembly/perlasm files per target arch
+(`crypto/fipsmodule/**/asm/*.pl`, `crypto/chacha/asm/*.pl`,
+`third_party/fiat/asm/*.S`, ...) for exactly the primitives on its hot path
+(AES-GCM, ChaCha20-Poly1305, SHA-2, P-256, Curve25519). Those are compiled
+by `cc`/an assembler and are already outside rustc's `opt-level`, same as
+BoringSSL's C code. An override would only reach ring's thin non-hot Rust
+glue, so it was not added — not a speculative inclusion, a checked exclusion.
+
+### Throughput
+
+`examples/bench.rs` against `cloudflare-quic.com`, 3 runs each side, same
+session: **no resolvable difference**, as anticipated (RTT-dominated). Warm
+pool-on p50 moved 73.3 ms &rarr; 62.2 ms, but the CPU math below (a few
+hundred ns saved per request) cannot explain an 11 ms gap — that is network
+variance, not a measured win, and is reported as such rather than claimed.
+
+Bench could not resolve it, so the CPU paths were timed directly instead:
+a throwaway example (not committed, deleted after use) called `quiche`'s own
+public QPACK codec (`quiche::h3::qpack::{Encoder,Decoder}`, `#[doc(hidden)]`
+but genuinely `pub`) and `sha2::Sha256::digest` — the exact two dependencies
+the override targets — with no network involved. 500k iterations/side,
+3 runs each, low variance:
+
+| Path | Before (ns/op) | After (ns/op) | Delta |
+|---|---:|---:|---:|
+| QPACK encode | 653.6 | 596.5 | -8.7% |
+| QPACK decode | 1808.3 | 1586.7 | -12.2% |
+| SHA-256 (550-byte buf) | 2044.7 | 992.7 | **-51.4% (~2.06x)** |
+
+The 550-byte buffer matches what `sha256_pin()` (`lib.rs`) hashes for
+`spki-pinning`/cert-DER pin checks — note this path only runs when the
+caller configures `certificate_pins` for the host; `bench.rs`'s default
+config has none, so `bench.rs` never exercises `sha2` at all, independent of
+the RTT-dominance argument. QPACK encode/decode runs on every request
+(headers out, headers in) regardless of pinning, which is why it shows up in
+`bench.rs`'s call path even though its ~250 ns/request saving is invisible
+next to tens of milliseconds of RTT.
+
+### Size
+
+Same before/after pair, same session. "Before" is the tree as committed
+(`ea394870`, VaneKotlin `88d93ee`); "after" is with the override above.
+
+**Android arm64-v8a**, default features, raw `cargo ndk build --release
+--target aarch64-linux-android` output (`ANDROID_NDK_HOME` = NDK
+28.2.13676358) — the native payload the CI gate (`scripts/report-artifact-sizes.sh`,
+8,000,000-byte trigger on a device-shipping ABI) sums:
+
+| File | Before | After | Delta |
+|---|---:|---:|---:|
+| `libvane.so` (linked, shipped, DCE'd against vane's actual usage) | 5,157,848 | 5,201,384 | +43,536 (+0.84%) |
+| `libquiche-<hash>.so` (quiche's own cdylib build byproduct — quiche declares `crate-type = ["lib", "staticlib", "cdylib"]`, so Cargo builds it regardless of whether vane needs it; not DCE'd against vane's usage, carries quiche's full compiled surface) | 310,248 | 495,608 | +185,360 (+59.75%) |
+| **Total native payload (gate input)** | **5,468,096** | **5,696,992** | **+228,896 (+4.19%)** |
+| % of the 8,000,000-byte gate | 68% | 71% | +3 points |
+| Headroom remaining | 2,531,904 (31.6%) | 2,303,008 (28.8%) | — |
+
+Most of the raw delta (81%, +185 KB of the +229 KB) is quiche's own
+never-loaded cdylib byproduct getting bigger at `opt-level = 3`, not a cost
+of the code Android actually runs — `libvane.so` (the file
+`System.loadLibrary("vane")` actually loads) grew well under 1%. The gate as
+currently implemented sums both files (see `report-artifact-sizes.sh`'s own
+comment: "what one device actually downloads for its ABI"), so both are
+reported here; whether that byproduct should ship in `jniLibs` at all is a
+separate, pre-existing packaging question out of scope for this change,
+noted for the backlog, not fixed here. Gate verdict either way: **PASS**,
+not pushed toward the line in any decisive way.
+
+**iOS device** (`aarch64-apple-ios`), default features, linked `cdylib`
+byproduct (the honest app-size proxy this file already uses elsewhere —
+Apple links against the `.a`, so this reflects a real link + dead-code-elimination
+pass, not the unlinked archive):
+
+| File | Before | After | Delta |
+|---|---:|---:|---:|
+| `libvane.dylib` | 4,003,636 | 4,067,964 | +64,328 (+1.61%) |
+
+### Verdict: KEPT
+
+Real, directly-measured, reproducible CPU wins on both targeted packages
+(QPACK -8.7%/-12.2%, SHA-256 ~2.06x) for a size cost that is small in
+absolute terms on the artifact that actually matters (+0.84% `libvane.so` on
+Android, +1.61% `libvane.dylib` on iOS) and does not move either device-shipping
+ABI meaningfully toward the 8 MB CI gate (68% &rarr; 71%, still comfortable
+headroom). `ring` was evaluated and excluded on checked evidence (its hot
+paths are already assembly, not Rust `opt-level`-sensitive). The change
+stays in `vane-rs/Cargo.toml`.
+
+Gates run after the change (not committed by this pass): `cargo fmt --check`
+clean; `cargo clippy --release --all-targets -- -D warnings` clean, both
+default and `--no-default-features`; `cargo test --release` 64/64 default,
+47/47 `--no-default-features`; `VANE_TEST_BASE_URL=https://cloudflare-quic.com
+cargo run --release --example protocol_check` — ok, live.
