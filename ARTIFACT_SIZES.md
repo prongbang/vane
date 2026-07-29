@@ -22,6 +22,19 @@ Small Swift profile: built with `make build_swift_small`. This profile removes
 the SPKI pin parser to reduce size. It supports HTTP/3 and
 `sha256-cert/<base64-cert-der-sha256>` certificate pins.
 
+It also drops the `psl` feature, so its cookie jar refuses a `Set-Cookie`
+`Domain` that is a bare TLD (`com`) or an IP literal, but not one that is a
+multi-label public suffix (`co.uk`, `github.io`). The full profile refuses
+both. Cookies are off by default in either profile.
+
+Measured cost of `psl` on the host macOS release dylib (`opt-level = "z"`,
+fat LTO, stripped), recorded as the Phase 5 baseline:
+
+| Profile | Size |
+|---------|------|
+| H3 only, no `psl` | 1,748,272 bytes |
+| H3 only, with `psl` | 2,294,368 bytes (+546,096, +31%) |
+
 | Slice | File | Size |
 |-------|------|------|
 | macOS arm64/x86_64 | `VaneSwift/RustFramework.small.xcframework/macos-arm64_x86_64/libvane.a` | 45,520,048 bytes |
