@@ -341,6 +341,51 @@ unlinked archive, not app impact. The number nobody has taken — archive a
 minimal SwiftUI app against the default vs small XCFramework and compare
 thinned arm64 `.ipa`. Interim posture: the linked cdylib proxy stands.
 
+## Android: TCP fallback made real, 2026-07-29
+
+Shipping `tcp-fallback` default-on exposed two Android-only defects that no
+host test could catch. Both are fixed and covered by instrumented tests on an
+API 35 emulator (5/5): HTTP/3 through the CA directory, HTTP/1.1 through the
+JNI trust store, self-signed rejected, CRL-only hosts accepted, stapling host
+still works.
+
+1. `rustls_platform_verifier` needs a one-time JNI init with an Android
+   `Context`. Without it the crate's `global()` panics — and the release
+   profile is `panic = abort`, so an uninitialized process aborted outright
+   rather than returning an error. A bare `ContentProvider` now runs the init
+   at process start (public API unchanged); `tls_config` guards the single
+   place a platform verifier is constructed and names the missing step.
+   Upstream's Kotlin component is not on Maven Central (issue #115), so it is
+   vendored — now as patched source rather than a binary jar.
+2. Certificates from CAs that retired OCSP in 2025 (Let's Encrypt, Google
+   Trust Services) are CRL-only, so Android's `PKIXRevocationChecker` throws
+   instead of soft-failing, and the vendored verifier mapped every
+   `CertPathValidatorException` to `Revoked` without reading its reason. A
+   large share of the web was unreachable over TCP while
+   `HttpsURLConnection` succeeded on the same device. Fixed by reporting the
+   exception's reason; patch prepared for upstream #221.
+
+Measured along the way, and it changes the threat model: **network-fetched
+OCSP is already inoperative on Android.** Responder URLs are cleartext
+`http://` by RFC 6960 and `usesCleartextTraffic` defaults false for targetSdk
+28+, so the fetch fails and `SOFT_FAIL` forgives it — an A/B against the
+upstream mapping confirms a genuinely revoked certificate connects either
+way. Revocation is enforced only from a staple (which still blocks). The
+HTTP/3 path performs no revocation checking at all, so the fix costs no
+parity.
+
+Also hardened: CA root loading now tries the Conscrypt APEX store first and
+treats a present-but-empty directory as a miss. BoringSSL's directory load
+registers a lazy lookup path and succeeds on an empty directory, which would
+have yielded zero trust anchors and failed every HTTP/3 handshake with an
+opaque error. (`/system/etc/security/cacerts` is populated on the API 35
+emulator — 145 certs — so this is hardening, not a live bug.)
+
+Open, not fixed: `unexpected_eof` roughly 1 in 3 against some hosts over
+HTTP/1.1 — pre-existing rustls/reqwest behavior, not Android-specific; the
+instrumented test retries 3× with a comment on why that cannot mask an init
+regression.
+
 ## Backlog surfaced by batch-3 reviews (cross-ABI, needs core + bindings)
 
 - Surface `set-cookie` values in responses: both transports divert them into
