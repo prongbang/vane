@@ -1,6 +1,7 @@
 .DS_Store
 .graphify_python
 graphify-out/
+.codegraph/
 .codex/
 AGENTS.md
 PLAN.md
