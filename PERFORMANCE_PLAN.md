@@ -434,7 +434,41 @@ HTTP/1.1 — pre-existing rustls/reqwest behavior, not Android-specific; the
 instrumented test retries 3× with a comment on why that cannot mask an init
 regression.
 
-## New gap found 2026-07-29: HTTP/3 does not follow redirects
+## CLOSED 2026-08-03: HTTP/3 now follows redirects
+
+Fixed by extracting the TCP path's decision functions into shared code
+(`next_redirect_url`, `redirect_rewrite`, `header_survives_origin_change`,
+`MAX_REDIRECTS`) rather than porting a second copy — a copy would have
+re-diverged on the next edit, which is the bug itself. `tcp.rs` lost its
+private copies; its `redirect_target` is now a thin adapter. Security
+verified line-by-line that every rule from the three earlier TCP reviews
+survived the extraction unchanged.
+
+Two problems surfaced during review and were fixed with it:
+- The chain broke the invariant behind `never_left_the_client()`. Hop N's
+  handshake yields the same `ConnectTimeout` as hop 0's, but by then hop 0's
+  request had been delivered and answered — so a POST that redirected could
+  be replayed over the TCP fallback. The claim is now withdrawn after hop 0.
+- Cross-origin body replay was refused for 307/308 only, so a 301/302 on a
+  GET-with-body shipped the body to the new origin: header stripping dropped
+  `Authorization` while the credential in the body went anyway. Now refused
+  for any method that keeps its body. **This changed TCP behaviour too.**
+
+Also: intermediate 3xx bodies capped at 64 KiB (a hostile chain cost ~704 MiB
+on H3 and nothing on TCP), one real deadline instead of a per-stage budget
+that each stage re-anchored, and a `vane-redirect-refused` header so callers
+can distinguish "blocked for your safety" from "a 3xx you opted out of
+following". The chain loop takes its hop executor as a closure, so it is
+tested offline against a stub responder.
+
+Deferred with a known ceiling: header-time `stream_shutdown` on a followable
+hop (would avoid downloading intermediate bodies at all, but a refused hop
+must still reach the caller with its body) and deferring `File::create` until
+a hop is known final — residual is a ≤64 KiB redirect stub left in
+`response_body_path` when a chain errors mid-way. Also still no offline HTTP/3
+*server*; multi-hop wire coverage is the live pie.dev test.
+
+## Historical — the gap as originally found 2026-07-29
 
 `follow_redirects` is honoured only on the TCP path (`redirect_target` /
 `follow_and_read` in `tcp.rs`); `lib.rs` has no `LOCATION` handling at all.
@@ -517,28 +551,26 @@ measurement.
 
 Open work, roughly by leverage:
 
-1. **HTTP/3 does not follow redirects** (see the section above) — the two
-   transports return different things for the same URL, and which one you get
-   depends on whether UDP is available. The largest remaining correctness gap.
-2. **Cross-ABI backlog** (below): surface `set-cookie`, a pre-startable cancel
-   token, and a negotiated-protocol field on `VaneResponse`.
-3. **Upstream PR for rustls-platform-verifier #221** — patch ready at
+1. **Cross-ABI backlog** (below): surface `set-cookie`, a pre-startable cancel
+   token, and a negotiated-protocol field on `VaneResponse`. Now the largest
+   remaining item, since the H3 redirect gap closed 2026-08-03.
+2. **Upstream PR for rustls-platform-verifier #221** — patch ready at
    `docs/upstream/`, not opened; needs a fork and is an outward-facing action.
-4. Live-infra gaps that still need infrastructure we do not have: end-to-end
+3. Live-infra gaps that still need infrastructure we do not have: end-to-end
    session resumption (needs a server that issues a NewSessionTicket) and the
    MASQUE inner MTU fix under load (needs a live MASQUE proxy).
-5. Housekeeping: `vane-rs/target` reached ~10 GB twice today and the machine
+4. Housekeeping: `vane-rs/target` reached ~10 GB twice today and the machine
    hit ENOSPC — a `cargo clean` policy or scheduled prune is overdue. The
    emulator also wedged into a state where `adb devices` reported `device`
    while every shell command hung; `adb kill-server` exposed it as `offline`.
    Worth knowing before blaming a build.
-6. `unexpected_eof` — DIAGNOSED 2026-07-29, fix in flight. It is the hyper
-   connection-pool checkout race: an idle connection whose FIN has arrived but
-   has not been processed is handed out, the request is written to a
-   half-closed socket, and the read returns EOF. Measured 13.3% at the race
-   window, 0% with a single retry, 0% with pooling off, and identical with a
-   clean `close_notify` — so rustls is not the cause and making it tolerate
-   EOF would only rename the bug. hyper's own retry cannot cover it: it
-   retries only `Retryable`, and ours arrives as `SendRequest` because the
-   message was already committed. **The TCP path is simply missing the
-   reuse-retry rule the H3 path has had since batch 1.**
+Worth keeping for whoever meets it again: the `unexpected_eof` flakiness
+(fixed 2026-07-29) was the hyper connection-pool checkout race — an idle
+connection whose FIN has arrived but has not been processed is handed out, the
+request is written to a half-closed socket, and the read returns EOF. Measured
+13.3% at the race window, 0% with a single retry, 0% with pooling off, and
+*identical with a clean `close_notify`* — so rustls was never the cause and
+making it tolerate EOF would only have renamed the bug. hyper's own retry
+cannot cover it: it retries only `Retryable`, and ours arrives as
+`SendRequest` because the message was already committed. The fix was the
+reuse-retry rule the H3 path had had since batch 1.
