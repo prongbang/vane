@@ -1,0 +1,214 @@
+{
+  "schema": 1,
+  "date": "2026-08-11T00:13:37.536073",
+  "base_url": "https:\/\/cloudflare-quic.com",
+  "host": "android 15 (API 35) sdk_gphone64_arm64 arm64-v8a",
+  "platform": "android",
+  "rounds": 3,
+  "requests_per_round": 10,
+  "warmup": 5,
+  "rows": [
+    {
+      "client": "vane (h1)",
+      "pinned_protocol": "HTTP\/1.1",
+      "observed_protocol": "HTTP\/1.1",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 866.545,
+      "p50_ms": 25.066,
+      "p95_ms": 29.873,
+      "min_ms": 22.1,
+      "max_ms": 37.008,
+      "n": 30,
+      "body_bytes": 125961,
+      "round_p50_ms": [
+        24.272,
+        26.436,
+        26.282
+      ],
+      "failure": null
+    },
+    {
+      "client": "vane (h2)",
+      "pinned_protocol": "HTTP\/2",
+      "observed_protocol": "HTTP\/2",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 494.334,
+      "p50_ms": 25.459,
+      "p95_ms": 29.294,
+      "min_ms": 22.199,
+      "max_ms": 29.565,
+      "n": 30,
+      "body_bytes": 125959,
+      "round_p50_ms": [
+        27.439,
+        24.596,
+        25.564
+      ],
+      "failure": null
+    },
+    {
+      "client": "vane (h3)",
+      "pinned_protocol": "HTTP\/3",
+      "observed_protocol": "HTTP\/3",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 61.399,
+      "p50_ms": 35.715,
+      "p95_ms": 45.026,
+      "min_ms": 32.363,
+      "max_ms": 80.093,
+      "n": 30,
+      "body_bytes": 125959,
+      "round_p50_ms": [
+        35.772,
+        35.959,
+        35.384
+      ],
+      "failure": null
+    },
+    {
+      "client": "cronet (h1.1)",
+      "pinned_protocol": "HTTP\/1.1",
+      "observed_protocol": "HTTP\/1.1",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 55.699,
+      "p50_ms": 24.126,
+      "p95_ms": 28.434,
+      "min_ms": 21.881,
+      "max_ms": 34.913,
+      "n": 30,
+      "body_bytes": 125961,
+      "round_p50_ms": [
+        25.772,
+        25.785,
+        24.013
+      ],
+      "failure": null
+    },
+    {
+      "client": "cronet (h2)",
+      "pinned_protocol": "HTTP\/2",
+      "observed_protocol": "HTTP\/2",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 53.264,
+      "p50_ms": 25.958,
+      "p95_ms": 28.765,
+      "min_ms": 22.103,
+      "max_ms": 29.142,
+      "n": 30,
+      "body_bytes": 125959,
+      "round_p50_ms": [
+        25.005,
+        26.135,
+        26.073
+      ],
+      "failure": null
+    },
+    {
+      "client": "cronet (h3)",
+      "pinned_protocol": "HTTP\/3",
+      "observed_protocol": "HTTP\/3",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 48.672,
+      "p50_ms": 25.844,
+      "p95_ms": 31.448,
+      "min_ms": 23.01,
+      "max_ms": 38.107,
+      "n": 30,
+      "body_bytes": 125959,
+      "round_p50_ms": [
+        24.354,
+        26.125,
+        26.106
+      ],
+      "failure": null
+    },
+    {
+      "client": "okhttp (h1.1)",
+      "pinned_protocol": "HTTP\/1.1",
+      "observed_protocol": "HTTP\/1.1",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 67.324,
+      "p50_ms": 23.513,
+      "p95_ms": 28.232,
+      "min_ms": 21.2,
+      "max_ms": 33.219,
+      "n": 30,
+      "body_bytes": 125961,
+      "round_p50_ms": [
+        23.333,
+        24.608,
+        23.513
+      ],
+      "failure": null
+    },
+    {
+      "client": "okhttp (h2)",
+      "pinned_protocol": "HTTP\/2",
+      "observed_protocol": "HTTP\/2",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 56.468,
+      "p50_ms": 26.074,
+      "p95_ms": 31.397,
+      "min_ms": 24.08,
+      "max_ms": 34.285,
+      "n": 30,
+      "body_bytes": 125959,
+      "round_p50_ms": [
+        25.504,
+        26.948,
+        27.003
+      ],
+      "failure": null
+    },
+    {
+      "client": "retrofit2 (h1.1)",
+      "pinned_protocol": "HTTP\/1.1",
+      "observed_protocol": "HTTP\/1.1",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 53.141,
+      "p50_ms": 25.839,
+      "p95_ms": 29.934,
+      "min_ms": 22.8,
+      "max_ms": 34.28,
+      "n": 30,
+      "body_bytes": 125961,
+      "round_p50_ms": [
+        26.091,
+        25.28,
+        25.943
+      ],
+      "failure": null
+    },
+    {
+      "client": "retrofit2 (h2)",
+      "pinned_protocol": "HTTP\/2",
+      "observed_protocol": "HTTP\/2",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 50.497,
+      "p50_ms": 24.006,
+      "p95_ms": 27.24,
+      "min_ms": 20.941,
+      "max_ms": 31.183,
+      "n": 30,
+      "body_bytes": 125959,
+      "round_p50_ms": [
+        24.48,
+        24.719,
+        23.908
+      ],
+      "failure": null
+    }
+  ],
+  "unsupported": [
+    {
+      "protocol": "HTTP\/3",
+      "client": "okhttp",
+      "reason": "OkHttp speaks HTTP\/1.1 and HTTP\/2 only; it has no HTTP\/3\/QUIC transport"
+    },
+    {
+      "protocol": "HTTP\/3",
+      "client": "retrofit2 (okhttp)",
+      "reason": "Retrofit rides OkHttp, which has no HTTP\/3\/QUIC transport"
+    }
+  ]
+}

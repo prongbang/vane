@@ -21,6 +21,9 @@
 /build/
 /coverage/
 
-# Benchmark scratch: `results/latest.json` is whatever ran last. A run worth
-# keeping is copied to `results/<date>-<label>.json`, which IS tracked.
+# Benchmark scratch: `results/latest.json` is whatever ran last (the Dart
+# harness); `results/android-latest.json` likewise for VaneKotlin's
+# bench-android.sh. A run worth keeping is copied to
+# `results/<date>-<label>.json`, which IS tracked.
 /results/latest.json
+/results/android-latest.json

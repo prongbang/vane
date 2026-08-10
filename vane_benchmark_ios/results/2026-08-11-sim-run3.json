@@ -1,0 +1,157 @@
+{
+  "base_url" : "https:\/\/cloudflare-quic.com",
+  "date" : "2026-08-10T17:25:14Z",
+  "host" : "ios-simulator iPhone 17 Pro Version 26.1 (Build 23B86)",
+  "platform" : "ios",
+  "requests_per_round" : 10,
+  "rounds" : 3,
+  "rows" : [
+    {
+      "body_bytes" : 125961,
+      "client" : "vane (h1)",
+      "cold_ms" : 128.10499999999999,
+      "failure" : null,
+      "max_ms" : 187.14500000000001,
+      "min_ms" : 22.550999999999998,
+      "n" : 30,
+      "observed_protocol" : "HTTP\/1.1",
+      "p50_ms" : 28.966000000000001,
+      "p95_ms" : 157.666,
+      "pinned_protocol" : "HTTP\/1.1",
+      "protocol_stated_not_observed" : false,
+      "round_p50_ms" : [
+        28.998000000000001,
+        45.271999999999998,
+        28.158999999999999
+      ]
+    },
+    {
+      "body_bytes" : 125959,
+      "client" : "vane (h2)",
+      "cold_ms" : 64.510000000000005,
+      "failure" : null,
+      "max_ms" : 94.043000000000006,
+      "min_ms" : 21.449999999999999,
+      "n" : 30,
+      "observed_protocol" : "HTTP\/2",
+      "p50_ms" : 27.963999999999999,
+      "p95_ms" : 78.488,
+      "pinned_protocol" : "HTTP\/2",
+      "protocol_stated_not_observed" : false,
+      "round_p50_ms" : [
+        28.155000000000001,
+        26.885000000000002,
+        30.632999999999999
+      ]
+    },
+    {
+      "body_bytes" : 125959,
+      "client" : "vane (h3)",
+      "cold_ms" : 204.089,
+      "failure" : null,
+      "max_ms" : 229.09800000000001,
+      "min_ms" : 24.145,
+      "n" : 30,
+      "observed_protocol" : "HTTP\/3",
+      "p50_ms" : 33.491999999999997,
+      "p95_ms" : 180.256,
+      "pinned_protocol" : "HTTP\/3",
+      "protocol_stated_not_observed" : false,
+      "round_p50_ms" : [
+        28.056999999999999,
+        31.440000000000001,
+        119.372
+      ]
+    },
+    {
+      "body_bytes" : 125959,
+      "client" : "urlsession (alpn)",
+      "cold_ms" : 62.155999999999999,
+      "failure" : null,
+      "max_ms" : 52.530999999999999,
+      "min_ms" : 20.689,
+      "n" : 30,
+      "observed_protocol" : "HTTP\/2",
+      "p50_ms" : 25.111000000000001,
+      "p95_ms" : 44.972000000000001,
+      "pinned_protocol" : "HTTP\/2",
+      "protocol_stated_not_observed" : false,
+      "round_p50_ms" : [
+        23.059000000000001,
+        24.411000000000001,
+        27.579000000000001
+      ]
+    },
+    {
+      "body_bytes" : 125959,
+      "client" : "alamofire (alpn)",
+      "cold_ms" : 54.220999999999997,
+      "failure" : null,
+      "max_ms" : 140.64099999999999,
+      "min_ms" : 20.559999999999999,
+      "n" : 30,
+      "observed_protocol" : "HTTP\/2",
+      "p50_ms" : 23.431000000000001,
+      "p95_ms" : 79.617999999999995,
+      "pinned_protocol" : "HTTP\/2",
+      "protocol_stated_not_observed" : false,
+      "round_p50_ms" : [
+        29.178999999999998,
+        22.623999999999999,
+        23.364000000000001
+      ]
+    },
+    {
+      "body_bytes" : 125959,
+      "client" : "urlsession (h3 hint)",
+      "cold_ms" : 43.957000000000001,
+      "failure" : null,
+      "max_ms" : 37.170000000000002,
+      "min_ms" : 22.655999999999999,
+      "n" : 30,
+      "observed_protocol" : "HTTP\/3",
+      "p50_ms" : 25.122,
+      "p95_ms" : 30.798999999999999,
+      "pinned_protocol" : "HTTP\/3",
+      "protocol_stated_not_observed" : false,
+      "round_p50_ms" : [
+        25.661999999999999,
+        25.122,
+        26.152000000000001
+      ]
+    },
+    {
+      "body_bytes" : 125959,
+      "client" : "alamofire (h3 hint)",
+      "cold_ms" : 64.069999999999993,
+      "failure" : null,
+      "max_ms" : 38.945999999999998,
+      "min_ms" : 26.059999999999999,
+      "n" : 30,
+      "observed_protocol" : "HTTP\/3",
+      "p50_ms" : 31.033000000000001,
+      "p95_ms" : 38.472999999999999,
+      "pinned_protocol" : "HTTP\/3",
+      "protocol_stated_not_observed" : false,
+      "round_p50_ms" : [
+        33.588000000000001,
+        30.762,
+        30.103000000000002
+      ]
+    }
+  ],
+  "schema" : 1,
+  "unsupported" : [
+    {
+      "client" : "urlsession",
+      "protocol" : "HTTP\/1.1",
+      "reason" : "no public API restricts URLSession to HTTP\/1.1 — ALPN always offers h2 and URLSessionConfiguration has no HTTP version knob"
+    },
+    {
+      "client" : "alamofire",
+      "protocol" : "HTTP\/1.1",
+      "reason" : "sits on URLSession; the same HTTP\/1.1 pin does not exist"
+    }
+  ],
+  "warmup" : 5
+}
