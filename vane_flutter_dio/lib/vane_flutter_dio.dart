@@ -38,7 +38,10 @@ import 'package:vane_flutter/vane_flutter.dart';
 ///   identically on both transports — so every entry becomes a one-element
 ///   list. `set-cookie` is the exception — it arrives as a genuine N-element
 ///   list, which is what dio's `cookie_manager` reads. Those values are raw: a
-///   cookie Vane's own jar refused still appears among them.
+///   cookie Vane's own jar refused still appears among them. Do NOT enable both
+///   Vane's jar and dio's `CookieManager` — dio's default jar is not
+///   public-suffix-aware, so it re-admits a `Domain=<public-suffix>` supercookie
+///   Vane rejected. Use one jar (see the package README).
 /// - The FFI response carries no reason phrase and no redirect chain, so
 ///   [ResponseBody.statusMessage] is left null, `isRedirect` stays false,
 ///   `redirects` stays null and [RequestOptions.maxRedirects] is ignored.

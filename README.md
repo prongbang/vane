@@ -748,3 +748,24 @@ VANE_TEST_BASE_URL=https://<http3-enabled-host> swift test --package-path VaneSw
   Remote IP is still future work. Repeated non-cookie headers are comma-joined
   into one `"a, b"` value (RFC 9110 §5.2), identically on both transports;
   `set-cookie` alone stays a real list, via `VaneResponse.setCookie`
+
+## Security Posture
+
+- **TLS is always verified.** There is no insecure/accept-invalid-certs mode in
+  release builds. Certificate pinning (`sha256/<spki>`, `sha256-cert/<der>`) is
+  host-scoped, opt-in, and fails closed on mismatch or a missing peer cert. A
+  redirect can never leave a pinned host, downgrade to `http://`, or carry
+  `Authorization`/`Cookie` across an origin change (host or port). TLS session
+  resumption never applies to a pinned host.
+- **SSRF is the caller's responsibility.** Like other general-purpose HTTP
+  clients, Vane connects to whatever host a caller-supplied URL (or a redirect
+  it is told to follow) resolves to, including loopback (`127.0.0.1`),
+  link-local, and cloud metadata addresses (`169.254.169.254`). If your app
+  passes untrusted URLs, validate or allowlist the destination before the
+  request — Vane does not block private/metadata ranges. Static `dnsOverrides`
+  keep SNI and certificate verification bound to the original hostname, so an
+  override cannot be used to shed a pin.
+- **Redirect targets are gated but still fetched.** `followRedirects` follows
+  only `https` targets, caps the chain at 10 hops, refuses cross-origin body
+  replay, and caps intermediate 3xx bodies at 64 KiB; a refused hop reaches the
+  caller with a `vane-redirect-refused` header rather than being followed.

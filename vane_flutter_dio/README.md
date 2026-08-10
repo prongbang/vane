@@ -67,6 +67,15 @@ front:
   them, so a third-party cookie store in front of this adapter admits what
   Vane deliberately rejected, and it does so even with
   `VaneConfiguration(cookiesEnabled: false)`.
+
+  > **Do not run Vane's cookie jar and dio's `CookieManager` at the same time.**
+  > Vane's jar refuses a public-suffix `Domain` (e.g. `Domain=co.uk`) to stop a
+  > supercookie scoped across every site under that suffix, but the raw value is
+  > still surfaced, and dio's default `DefaultCookieJar` does **not** filter
+  > public suffixes — so with both stores enabled, dio re-admits the exact
+  > cookie Vane rejected, widening Vane's cookie model. Pick one jar: either
+  > Vane's (leave dio's `CookieManager` off) or dio's (set
+  > `cookiesEnabled: false` and use a PSL-aware `CookieJar` yourself).
 - No reason phrase and no redirect chain come back over FFI, so
   `Response.statusMessage` is null, `isRedirect` is false and `maxRedirects` is
   ignored. `followRedirects` is honored.
