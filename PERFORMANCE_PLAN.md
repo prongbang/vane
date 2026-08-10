@@ -550,11 +550,15 @@ it carries no SLA.
 
 ## Where this stands — 2026-08-10
 
-Every numbered phase is done and committed, plus cross-ABI cancellation and
-header unification. Measured result: warm pooled p50 **114 ms → 58.7 ms
-(−49%)** against cloudflare-quic.com, cold ~450 ms → ~262 ms. Current suite:
-81 Rust tests all-features / 60 `--no-default-features`, 5/5 live HTTP/3
-against pie.dev, Kotlin 17, Swift 16, dio 14, Flutter 38, size gate PASS.
+Every numbered phase is done and committed, plus cross-ABI cancellation,
+header unification, the security-audit hardening batch (ABI version guard,
+progress-leak fix, body precheck, location parity, H3 header-section cap),
+and the in-process HTTP/3 test server. Measured result: warm pooled p50
+**114 ms → 58.7 ms (−49%)** against cloudflare-quic.com, cold ~450 ms →
+~262 ms. Current suite: 89 Rust tests all-features / 68
+`--no-default-features` (now including offline H3 wire tests + resumption
+e2e), 5/5 live HTTP/3 against pie.dev, Kotlin 17, Swift 16, dio 14,
+Flutter 40, size gate PASS.
 
 | Phase | State |
 |-------|-------|
@@ -604,9 +608,15 @@ Open work, roughly by leverage:
 
 1. **Upstream PR for rustls-platform-verifier #221** — patch ready at
    `docs/upstream/`, not opened; needs a fork and is an outward-facing action.
-2. Live-infra gaps that still need infrastructure we do not have: end-to-end
-   session resumption (needs a server that issues a NewSessionTicket) and the
-   MASQUE inner MTU fix under load (needs a live MASQUE proxy).
+2. ~~End-to-end session resumption~~ — CLOSED 2026-08-10 by the in-process
+   HTTP/3 test server (`vane-rs/src/h3_offline.rs`, cfg(test) only): the
+   server issues NewSessionTickets and records `is_resumed()` per
+   connection; offline tests pin `[false, true]` for a non-pinned host and
+   `[false, false]` for a pinned one. The only remaining live-infra gap is
+   the MASQUE inner MTU fix under load (needs a live CONNECT-UDP proxy).
+   Bonus offline coverage from the same server: `/get`+`/post` echo,
+   cookie-set-on-302 readback, and a 3-hop redirect chain on the H3 wire —
+   the env-gated live tests stay as-is.
 3. `PLAN.md`'s release checklist still has five unticked items that all need
    real hardware: AAR from a clean CI checkout, a clean Android app on a real
    device, Swift live H3 plus a clean app import, and TLS tests on devices.
