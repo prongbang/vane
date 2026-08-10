@@ -553,12 +553,20 @@ it carries no SLA.
 Every numbered phase is done and committed, plus cross-ABI cancellation,
 header unification, the security-audit hardening batch (ABI version guard,
 progress-leak fix, body precheck, location parity, H3 header-section cap),
-and the in-process HTTP/3 test server. Measured result: warm pooled p50
-**114 ms → 58.7 ms (−49%)** against cloudflare-quic.com, cold ~450 ms →
-~262 ms. Current suite: 89 Rust tests all-features / 68
-`--no-default-features` (now including offline H3 wire tests + resumption
-e2e), 5/5 live HTTP/3 against pie.dev, Kotlin 17, Swift 16, dio 14,
-Flutter 40, size gate PASS.
+the in-process HTTP/3 test server, and the parser property tests.
+Measured result: warm pooled p50 **114 ms → 58.7 ms (−49%)** against
+cloudflare-quic.com, cold ~450 ms → ~262 ms. Current suite: 103 Rust tests
+all-features / 82 `--no-default-features` (offline H3 wire tests +
+resumption e2e + 14 property tests), 5/5 live HTTP/3 against pie.dev,
+Kotlin 17, Swift 16, dio 14, Flutter 40, size gate PASS.
+
+The property tests earned their keep immediately, finding two real URL-parser
+bugs of the same differential class as the earlier HIGH finding: a bracketed
+IPv6 host kept its hex case while pin keys are stored lowercase, so an app
+pinning `[2001:DB8::A]` and requesting that same spelling **connected
+unpinned with no error**; and `parse_port` accepted `"+80"` because
+`u16::from_str` allows a leading `+` and only the non-bracketed branch
+pre-screened digits. Both fixed at the choke point, both mutation-probed.
 
 | Phase | State |
 |-------|-------|
