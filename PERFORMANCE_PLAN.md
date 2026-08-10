@@ -554,8 +554,11 @@ Every numbered phase is done and committed, plus cross-ABI cancellation,
 header unification, the security-audit hardening batch (ABI version guard,
 progress-leak fix, body precheck, location parity, H3 header-section cap),
 the in-process HTTP/3 test server, and the parser property tests.
-Measured result: warm pooled p50 **114 ms → 58.7 ms (−49%)** against
-cloudflare-quic.com, cold ~450 ms → ~262 ms. Current suite: 103 Rust tests
+Measured result: warm pooled p50 **114 ms → ~27 ms (−76%)** against
+cloudflare-quic.com, cold ~450 ms → ~64-104 ms. The last and largest step
+came 2026-08-10 from the drive-loop fix below, found only because a
+cross-client benchmark exposed a 2x deficit that Vane's own before/after
+numbers had hidden for months. Current suite: 103 Rust tests
 all-features / 82 `--no-default-features` (offline H3 wire tests +
 resumption e2e + 14 property tests), 5/5 live HTTP/3 against pie.dev,
 Kotlin 17, Swift 16, dio 14, Flutter 40, size gate PASS.
@@ -611,6 +614,40 @@ Closed 2026-08-10, previously the top of this list:
 4. Housekeeping — `make clean` in `vane-rs/Makefile` (cargo clean for the
    ~10 GB target/ plus vane-bindgen's); run it on low disk or after a
    toolchain bump, at the price of one cold build.
+
+## The drive-loop stall — found 2026-08-10 by benchmarking against peers
+
+The single largest latency win in the project, and it sat undetected through
+every phase above because Vane was only ever measured against its own
+baseline. A Dart benchmark (`vane_benchmark/`) put Vane beside rhttp, dio and
+`package:http` on one endpoint and showed Vane **last in every run, ~2x
+slower than rhttp at the same protocol** — about one extra RTT per request.
+
+Cause: `read_quic_packets` ran a blocking socket with a read timeout of
+`min(conn.timeout(), 50 ms)` and looped on `recv` until that timeout fired, so
+the only exit from a successful read was to block for the full timer waiting
+for a packet that was never coming. Every call site is ordered read-then-flush,
+so the sleep sat between the response arriving and our ACKs going out.
+Instrumented live: 84 of 84 packet-carrying reads ended in a 35-51 ms dead
+block; a warm request was ~25 ms of real work plus one ~40 ms sleep. Cold and
+pool=off paid it three times, with the server visibly cwnd-blocked waiting for
+ACKs we were holding — a circular stall, not a local one.
+
+Fix: the first `recv` still blocks on the same timer (the one legitimate wait,
+which is also what bounds cancel/deadline responsiveness and keeps the loop
+from spinning); after the first packet the socket flips non-blocking, drains
+the burst, and blocking mode is restored before every return including error
+paths. Std-only, two fcntls per burst.
+
+Result: warm pool=on p50 **69-71 ms → 25-30 ms**, pool=off **206-208 → 49-52**,
+cold **208-222 → 64-104**. Against the peers the deficit is gone and Vane now
+trades places inside the field run to run; parity is what the data supports,
+not a crown.
+
+Lesson worth keeping: self-relative benchmarks certify the direction of a
+change and say nothing about whether the absolute number is any good. Every
+phase in this document reported honest improvements against Vane's own past
+while a 40 ms structural stall sat untouched in the drive loop.
 
 Open work, roughly by leverage:
 
