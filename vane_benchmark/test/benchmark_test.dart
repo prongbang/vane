@@ -30,6 +30,7 @@
 // - Connection pooling / keep-alive is left ON for every client (each one's
 //   default), because that is how all of them ship.
 
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 
@@ -520,6 +521,80 @@ void main() {
       'One machine, one network, sequential requests — RTT-dominated, '
       'not a lab. See README.md.',
     );
+
+    // Machine-readable twin of everything printed above. Written BEFORE the
+    // assertions so a run that fails a Vane cell still leaves its evidence on
+    // disk. VANE_BENCH_JSON overrides the path; results/latest.json is
+    // gitignored scratch, and a run worth keeping is copied to
+    // results/<date>-<label>.json by hand — an auto-named file per run would
+    // fill the repo with noise nobody chose to keep.
+    final jsonPath =
+        Platform.environment['VANE_BENCH_JSON']?.trim().isNotEmpty == true
+        ? Platform.environment['VANE_BENCH_JSON']!.trim()
+        : 'results/latest.json';
+    final metrics = <String, Object?>{
+      'schema': 1,
+      'date': DateTime.now().toIso8601String(),
+      'base_url': base,
+      'host': '${Platform.operatingSystem} '
+          '${Platform.operatingSystemVersion}',
+      'dart': Platform.version.split(' ').first,
+      'rounds': roundCount,
+      'requests_per_round': perRound,
+      'warmup': warmup,
+      'rows': <Map<String, Object?>>[
+        for (final c in contenders)
+          <String, Object?>{
+            'client': c.name,
+            'pinned_protocol': c.group,
+            // What was negotiated, not what was asked for — the same
+            // distinction the table's proto column makes.
+            'observed_protocol': (c.protocols.toList()..sort()).join('+'),
+            'protocol_stated_not_observed': c.protoStated,
+            'cold_ms': c.cold?.inMicroseconds != null
+                ? c.cold!.inMicroseconds / 1000.0
+                : null,
+            'p50_ms': c.pooled.isEmpty
+                ? null
+                : _percentile(c.pooled, 50).inMicroseconds / 1000.0,
+            'p95_ms': c.pooled.isEmpty
+                ? null
+                : _percentile(c.pooled, 95).inMicroseconds / 1000.0,
+            'min_ms': c.pooled.isEmpty
+                ? null
+                : c.pooled.first.inMicroseconds / 1000.0,
+            'max_ms': c.pooled.isEmpty
+                ? null
+                : c.pooled.last.inMicroseconds / 1000.0,
+            'n': c.pooled.length,
+            'body_bytes': c.bodyBytes,
+            'round_p50_ms': <double>[
+              for (final round in c.rounds)
+                _percentile(
+                      round.toList()..sort(),
+                      50,
+                    ).inMicroseconds /
+                    1000.0,
+            ],
+            'failure': c.failure?.toString(),
+          },
+      ],
+      'unsupported': <Map<String, String>>[
+        for (final (group, name, reason) in _unsupported)
+          <String, String>{
+            'protocol': group,
+            'client': name,
+            'reason': reason,
+          },
+      ],
+    };
+    final jsonFile = File(jsonPath);
+    jsonFile.parent.createSync(recursive: true);
+    jsonFile.writeAsStringSync(
+      '${const JsonEncoder.withIndent('  ').convert(metrics)}\n',
+    );
+    print('');
+    print('metrics written to ${jsonFile.absolute.path}');
 
     // The benchmark exists to measure Vane; a run where any Vane cell failed
     // must be loud, not a quietly shorter table. A tcp-fallback-less dylib

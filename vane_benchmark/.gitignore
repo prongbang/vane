@@ -20,3 +20,7 @@
 .flutter-plugins-dependencies
 /build/
 /coverage/
+
+# Benchmark scratch: `results/latest.json` is whatever ran last. A run worth
+# keeping is copied to `results/<date>-<label>.json`, which IS tracked.
+/results/latest.json

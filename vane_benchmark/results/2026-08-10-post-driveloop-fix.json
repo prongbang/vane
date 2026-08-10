@@ -1,0 +1,262 @@
+{
+  "schema": 1,
+  "date": "2026-08-10T23:43:35.019106",
+  "base_url": "https://cloudflare-quic.com",
+  "host": "macos Version 26.5.1 (Build 25F80)",
+  "dart": "3.12.1",
+  "rounds": 3,
+  "requests_per_round": 10,
+  "warmup": 5,
+  "rows": [
+    {
+      "client": "vane (ffi, h1)",
+      "pinned_protocol": "HTTP/1.1",
+      "observed_protocol": "HTTP/1.1",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 80.4,
+      "p50_ms": 29.163,
+      "p95_ms": 42.038,
+      "min_ms": 22.628,
+      "max_ms": 50.129,
+      "n": 30,
+      "body_bytes": 125961,
+      "round_p50_ms": [
+        38.569,
+        27.508,
+        24.672
+      ],
+      "failure": null
+    },
+    {
+      "client": "vane (dio, h1)",
+      "pinned_protocol": "HTTP/1.1",
+      "observed_protocol": "HTTP/1.1",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 70.795,
+      "p50_ms": 24.513,
+      "p95_ms": 32.771,
+      "min_ms": 19.644,
+      "max_ms": 63.17,
+      "n": 30,
+      "body_bytes": 125961,
+      "round_p50_ms": [
+        25.592,
+        22.033,
+        24.798
+      ],
+      "failure": null
+    },
+    {
+      "client": "vane (ffi, h2)",
+      "pinned_protocol": "HTTP/2",
+      "observed_protocol": "HTTP/2",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 56.578,
+      "p50_ms": 21.015,
+      "p95_ms": 24.782,
+      "min_ms": 16.227,
+      "max_ms": 28.137,
+      "n": 30,
+      "body_bytes": 125959,
+      "round_p50_ms": [
+        20.736,
+        21.247,
+        21.472
+      ],
+      "failure": null
+    },
+    {
+      "client": "vane (dio, h2)",
+      "pinned_protocol": "HTTP/2",
+      "observed_protocol": "HTTP/2",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 63.741,
+      "p50_ms": 34.747,
+      "p95_ms": 45.109,
+      "min_ms": 29.621,
+      "max_ms": 48.412,
+      "n": 30,
+      "body_bytes": 125959,
+      "round_p50_ms": [
+        34.408,
+        34.747,
+        34.986
+      ],
+      "failure": null
+    },
+    {
+      "client": "vane (ffi, h3)",
+      "pinned_protocol": "HTTP/3",
+      "observed_protocol": "HTTP/3",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 57.6,
+      "p50_ms": 24.315,
+      "p95_ms": 32.665,
+      "min_ms": 19.275,
+      "max_ms": 43.768,
+      "n": 30,
+      "body_bytes": 125959,
+      "round_p50_ms": [
+        27.339,
+        24.403,
+        22.391
+      ],
+      "failure": null
+    },
+    {
+      "client": "vane (dio, h3)",
+      "pinned_protocol": "HTTP/3",
+      "observed_protocol": "HTTP/3",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 67.261,
+      "p50_ms": 31.404,
+      "p95_ms": 46.34,
+      "min_ms": 22.911,
+      "max_ms": 47.371,
+      "n": 30,
+      "body_bytes": 125959,
+      "round_p50_ms": [
+        36.979,
+        30.763,
+        25.787
+      ],
+      "failure": null
+    },
+    {
+      "client": "rhttp (h1.1)",
+      "pinned_protocol": "HTTP/1.1",
+      "observed_protocol": "HTTP/1.1",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 111.209,
+      "p50_ms": 30.48,
+      "p95_ms": 35.672,
+      "min_ms": 24.759,
+      "max_ms": 36.245,
+      "n": 30,
+      "body_bytes": 125961,
+      "round_p50_ms": [
+        30.873,
+        30.822,
+        28.813
+      ],
+      "failure": null
+    },
+    {
+      "client": "rhttp (h2)",
+      "pinned_protocol": "HTTP/2",
+      "observed_protocol": "HTTP/2",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 58.408,
+      "p50_ms": 25.118,
+      "p95_ms": 29.485,
+      "min_ms": 21.892,
+      "max_ms": 29.808,
+      "n": 30,
+      "body_bytes": 125959,
+      "round_p50_ms": [
+        26.032,
+        24.719,
+        25.403
+      ],
+      "failure": null
+    },
+    {
+      "client": "rhttp (h3)",
+      "pinned_protocol": "HTTP/3",
+      "observed_protocol": "HTTP/3",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 320.675,
+      "p50_ms": 33.258,
+      "p95_ms": 37.773,
+      "min_ms": 27.063,
+      "max_ms": 49.908,
+      "n": 30,
+      "body_bytes": 125959,
+      "round_p50_ms": [
+        35.323,
+        29.752,
+        31.502
+      ],
+      "failure": null
+    },
+    {
+      "client": "dio (dart:io)",
+      "pinned_protocol": "HTTP/1.1",
+      "observed_protocol": "HTTP/1.1",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 79.264,
+      "p50_ms": 27.043,
+      "p95_ms": 51.329,
+      "min_ms": 23.729,
+      "max_ms": 60.208,
+      "n": 30,
+      "body_bytes": 125961,
+      "round_p50_ms": [
+        26.865,
+        26.768,
+        27.51
+      ],
+      "failure": null
+    },
+    {
+      "client": "dio (http2 adapter)",
+      "pinned_protocol": "HTTP/2",
+      "observed_protocol": "HTTP/2",
+      "protocol_stated_not_observed": false,
+      "cold_ms": 88.333,
+      "p50_ms": 41.806,
+      "p95_ms": 85.44,
+      "min_ms": 37.184,
+      "max_ms": 86.671,
+      "n": 30,
+      "body_bytes": 125959,
+      "round_p50_ms": [
+        41.516,
+        46.224,
+        43.557
+      ],
+      "failure": null
+    },
+    {
+      "client": "package:http",
+      "pinned_protocol": "HTTP/1.1",
+      "observed_protocol": "HTTP/1.1",
+      "protocol_stated_not_observed": true,
+      "cold_ms": 53.323,
+      "p50_ms": 24.599,
+      "p95_ms": 27.869,
+      "min_ms": 22.622,
+      "max_ms": 28.524,
+      "n": 30,
+      "body_bytes": 125961,
+      "round_p50_ms": [
+        24.339,
+        25.726,
+        24.415
+      ],
+      "failure": null
+    }
+  ],
+  "unsupported": [
+    {
+      "protocol": "HTTP/2",
+      "client": "dio (dart:io)",
+      "reason": "dart:io has no HTTP/2 — the dio (http2 adapter) row is a separate first-party package"
+    },
+    {
+      "protocol": "HTTP/2",
+      "client": "package:http",
+      "reason": "dart:io HttpClient speaks HTTP/1.1 only"
+    },
+    {
+      "protocol": "HTTP/3",
+      "client": "dio",
+      "reason": "no HTTP/3 adapter exists for dio"
+    },
+    {
+      "protocol": "HTTP/3",
+      "client": "package:http",
+      "reason": "dart:io HttpClient speaks HTTP/1.1 only"
+    }
+  ]
+}
