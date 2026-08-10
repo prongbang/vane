@@ -1,16 +1,26 @@
 # Vane
 
 Vane is a cross-platform HTTP client powered by a shared Rust core and exposed
-as native APIs for Android, iOS, and Flutter. The current production target is
-small, fast, HTTP/3-only networking over QUIC.
+as native APIs for Android, iOS, and Flutter. The production target is small,
+fast, HTTP/3-first networking over QUIC, with a TCP fallback so requests still
+succeed on networks that block UDP.
 
 ## Current Transport
 
-- HTTP/3 over QUIC through Cloudflare `quiche`
-- HTTP/1.1 and HTTP/2 fallback code removed from the Rust core
-- TLS 1.3 through the HTTP/3 transport
-- HTTP/1.0 unsupported
-- HTTP/3 proxying is supported through HTTPS MASQUE/CONNECT-UDP proxies
+- HTTP/3 over QUIC through Cloudflare `quiche`; TLS 1.3 per QUIC
+- HTTP/1.1 and HTTP/2 over TCP through the `tcp-fallback` feature (reqwest +
+  rustls; TLS 1.2 and 1.3), **on by default**: `Http3ThenHttp2ThenHttp1` tries
+  HTTP/3 first and falls back on transport errors. The size-optimized small
+  profile (`--no-default-features`, `make build_swift_small`) is HTTP/3-only
+- Every `VaneProtocolMode` is real: `Http3Only`, `Http3ThenHttp2ThenHttp1`
+  (default), `Http2ThenHttp1`, `Http2Only`, `Http1Only`
+- HTTP/1.0 responses are accepted on the TCP path; forcing 1.0 requests is
+  unsupported
+- Certificate pinning, cookies, retry, redirects, and DNS overrides apply
+  identically on both transports; the same request returns the same headers
+  whichever transport served it
+- Proxying: HTTPS MASQUE/CONNECT-UDP for HTTP/3, HTTP CONNECT for the TCP
+  path — one `proxy_url`, interpreted per transport
 - Static DNS overrides are supported; dynamic DNS callback resolvers are not
   part of this production candidate
 
@@ -70,8 +80,8 @@ commit the updated gitlink in this repository.
 | Upload from file path | Yes | Yes | Yes |
 | Download response to file | Yes | Yes | Yes |
 | Upload/download progress callbacks | Yes | Yes | Yes |
-| Cancel token | Not yet high-level | Not yet high-level | Yes |
-| Proxy | Unsupported for HTTP/3-only transport | Unsupported for HTTP/3-only transport | Unsupported for HTTP/3-only transport |
+| Cancel token | Yes | Yes | Yes |
+| Proxy (MASQUE for H3, CONNECT for TCP) | Yes | Yes | Yes |
 
 ## Configuration Reference
 
@@ -97,8 +107,8 @@ All platforms map to the same Rust configuration model:
 | `timeoutSeconds` / `timeout` | Request timeout |
 | `followRedirects` | Follow redirects |
 | `userAgent` | Default user agent |
-| `protocolMode` | Keep `HTTP3_ONLY` / `http3Only`; legacy enum cases fail clearly |
-| `proxyUrl`, `proxyAuthorization` | HTTPS MASQUE/CONNECT-UDP proxy URL and optional authorization |
+| `protocolMode` | `http3ThenHttp2ThenHttp1` (default), `http3Only`, `http2ThenHttp1`, `http2Only`, `http1Only`; non-HTTP/3 modes need the default (`tcp-fallback`) build |
+| `proxyUrl`, `proxyAuthorization` | Proxy URL (MASQUE/CONNECT-UDP over HTTP/3, HTTP CONNECT over TCP) and optional authorization |
 
 ## Performance Usage Rules
 
@@ -739,9 +749,12 @@ VANE_TEST_BASE_URL=https://<http3-enabled-host> swift test --package-path VaneSw
 
 ## Known Limitations
 
-- HTTP/3 only; HTTP/1.1 and HTTP/2 are intentionally removed
-- Proxy support requires an HTTPS MASQUE/CONNECT-UDP proxy; classic HTTP CONNECT
-  proxies are not supported for QUIC
+- HTTP/1.0 requests cannot be forced (1.0 responses are accepted on the TCP
+  path); the size-optimized small profile is HTTP/3-only by design
+- Fallback is sequential: when HTTP/3 is down, `Http3ThenHttp2ThenHttp1` can
+  take up to 2× the timeout before the TCP attempt (no happy-eyeballs racing yet)
+- A proxy is applied per transport — MASQUE/CONNECT-UDP over HTTP/3, HTTP
+  CONNECT over TCP — from a single `proxyUrl`
 - Dynamic DNS callback resolvers are not implemented
 - Response metadata: the negotiated protocol is available as
   `VaneResponse.httpVersion`, and `Set-Cookie` as `VaneResponse.setCookie`.
