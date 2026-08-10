@@ -1,0 +1,30 @@
+name: vane_benchmark
+description: >-
+  Cross-client HTTP benchmark harness for Vane. Repo-internal tooling: pulls
+  in competing clients (rhttp, dio, package:http) that must never appear in
+  the shipping packages' dependency graphs.
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ^3.12.1
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  vane_flutter:
+    path: ../vane_flutter
+  vane_flutter_dio:
+    path: ../vane_flutter_dio
+  dio: ^5.9.2
+  http: ^1.6.0
+  rhttp: ^0.18.0
+  # Direct dep only for `ExternalLibrary`, to init rhttp's rust core from a
+  # cargo-built dylib on the host VM. Same major as rhttp's own pin.
+  flutter_rust_bridge: ^2.12.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0

@@ -1,0 +1,22 @@
+# Miscellaneous
+*.log
+*.swp
+.DS_Store
+.history
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Flutter/Dart/Pub related
+# Untracked like the sibling packages'. tool/build_rhttp.sh reads the local
+# lockfile at run time to find the resolved rhttp version; `flutter pub get`
+# regenerates it.
+/pubspec.lock
+**/doc/api/
+.dart_tool/
+.flutter-plugins-dependencies
+/build/
+/coverage/

@@ -1,0 +1,6 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # The harness prints its report; that is its entire job.
+    avoid_print: ignore
