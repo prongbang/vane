@@ -18,6 +18,9 @@ dependencies:
   vane_flutter_dio:
     path: ../vane_flutter_dio
   dio: ^5.9.2
+  # dio's HTTP/2 path is a separate first-party package; the dart:io adapter
+  # cannot speak h2.
+  dio_http2_adapter: ^2.6.0
   http: ^1.6.0
   rhttp: ^0.18.0
   # Direct dep only for `ExternalLibrary`, to init rhttp's rust core from a

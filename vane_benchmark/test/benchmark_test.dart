@@ -1,6 +1,8 @@
-// Cross-client latency benchmark: vane (FFI), vane via the dio adapter,
-// rhttp (pinned to h3 and at its default), dio's own dart:io adapter, and
-// package:http — all in one process, against one endpoint, sequentially.
+// Cross-client × protocol latency matrix: vane (FFI), vane via the dio
+// adapter, and rhttp each pinned to HTTP/1.1, HTTP/2 and HTTP/3; dio's
+// dart:io adapter (h1.1) and dio_http2_adapter (h2); package:http (h1.1) —
+// all in one process, against one endpoint, sequentially, so every
+// comparison is like-for-like at the same protocol.
 //
 //   VANE_TEST_BASE_URL=https://cloudflare-quic.com \
 //     flutter test test/benchmark_test.dart
@@ -16,9 +18,15 @@
 //   vane-rs/examples/bench.rs.
 // - The visiting order rotates by one each round so no client systematically
 //   rides a warmer network than the others.
-// - The protocol column is what each response actually reported, except
-//   package:http, whose API cannot say — dart:io speaks only HTTP/1.1 and the
-//   row is marked "stated".
+// - Row names state the pinned config; the proto column is what each
+//   response actually reported — except package:http, whose API cannot say
+//   (dart:io speaks only HTTP/1.1; marked "stated"). A row that negotiates
+//   something other than its pin gets a NOTE line, and a pinned cell that
+//   cannot reach its protocol is reported as an ERROR row, never silently
+//   downgraded (dio's Http2Adapter would otherwise fall back to dart:io
+//   h1.1; that fallback is disabled here).
+// - Cells that cannot exist (dio h3, package:http h2/h3) are printed as
+//   "unsupported" — that a client covers a column at all is a result.
 // - Connection pooling / keep-alive is left ON for every client (each one's
 //   default), because that is how all of them ship.
 
@@ -26,6 +34,7 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:dio_http2_adapter/dio_http2_adapter.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart'
     show ExternalLibrary;
 import 'package:flutter_test/flutter_test.dart';
@@ -43,9 +52,19 @@ import 'package:vane_flutter_dio/vane_flutter_dio.dart';
 typedef _Shot = ({int status, int bytes, String proto});
 
 class _Contender {
-  _Contender(this.name, {required this.fire, this.protoStated = false});
+  _Contender(
+    this.name,
+    this.group, {
+    required this.fire,
+    this.protoStated = false,
+  });
 
+  /// Unique display name; states the pinned config (e.g. `vane (ffi, h2)`).
   final String name;
+
+  /// Protocol group this row is pinned to: the table it belongs in.
+  final String group;
+
   final Future<_Shot> Function(Uri url) fire;
 
   /// True when the protocol label is asserted from documentation rather than
@@ -98,8 +117,8 @@ String _vaneProto(VaneHttpVersion? version) => switch (version) {
 };
 
 /// dio's `extraKeyHttpVersion` carries `'1.1'`-style strings: the IO adapter
-/// forwards dart:io's `protocolVersion`, the Vane adapter maps the core's
-/// enum onto the same scheme (`'3.0'` for h3).
+/// forwards dart:io's `protocolVersion`, Http2Adapter stamps `'2.0'`, the
+/// Vane adapter maps the core's enum onto the same scheme (`'3.0'` for h3).
 String _dioProto(Object? version) => switch (version) {
   '1.0' => 'HTTP/1.0',
   '1.1' => 'HTTP/1.1',
@@ -134,8 +153,24 @@ String _ms(Duration? d) =>
 String _row(String name, List<String> cells) =>
     name.padRight(22) + cells.map((cell) => cell.padLeft(9)).join();
 
+const List<String> _groups = <String>['HTTP/1.1', 'HTTP/2', 'HTTP/3'];
+
+/// Cells that cannot exist, printed per group so their absence is a stated
+/// result rather than a silently missing row.
+const List<(String group, String name, String reason)> _unsupported = [
+  (
+    'HTTP/2',
+    'dio (dart:io)',
+    'dart:io has no HTTP/2 — the dio (http2 adapter) row is a separate '
+        'first-party package',
+  ),
+  ('HTTP/2', 'package:http', 'dart:io HttpClient speaks HTTP/1.1 only'),
+  ('HTTP/3', 'dio', 'no HTTP/3 adapter exists for dio'),
+  ('HTTP/3', 'package:http', 'dart:io HttpClient speaks HTTP/1.1 only'),
+];
+
 void main() {
-  test('cross-client latency benchmark', () async {
+  test('cross-client × protocol latency matrix', () async {
     final base = Platform.environment['VANE_TEST_BASE_URL'];
     if (base == null || !base.startsWith('https://')) {
       print('vane benchmark: skipped (VANE_TEST_BASE_URL not set to https)');
@@ -147,7 +182,8 @@ void main() {
     if (vaneLib == null) {
       print(
         'vane benchmark: skipped (libvane not built — '
-        'run `cargo build --release` in vane-rs)',
+        'run `cargo build --release` in vane-rs; the default features '
+        'include the tcp-fallback the h1/h2 rows need)',
       );
       return;
     }
@@ -160,106 +196,142 @@ void main() {
     const guard = Duration(seconds: 30);
 
     // One shared FFI platform, like the production singleton: worker isolates
-    // are shared, while each VaneClient below still owns its native client and
-    // connection pool.
+    // are shared, while each VaneClient below still owns its native client
+    // and connection pool, pinned to one protocol.
     final ffiPlatform = FfiVaneFlutter(library: DynamicLibrary.open(vaneLib));
-    final vaneClient = VaneClient(platform: ffiPlatform);
-    final vaneForDio = VaneClient(platform: ffiPlatform);
-    final vaneDio = Dio(
-      BaseOptions(
-        responseType: ResponseType.bytes,
-        // Status handling is the harness's job, uniformly across clients.
-        validateStatus: (_) => true,
+    VaneClient vaneAt(VaneProtocolMode mode) => VaneClient(
+      configuration: VaneConfiguration(protocolMode: mode),
+      platform: ffiPlatform,
+    );
+    const vaneModes = <(String group, String pin, VaneProtocolMode mode)>[
+      ('HTTP/1.1', 'h1', VaneProtocolMode.http1Only),
+      ('HTTP/2', 'h2', VaneProtocolMode.http2Only),
+      ('HTTP/3', 'h3', VaneProtocolMode.http3Only),
+    ];
+    final vaneClients = <String, VaneClient>{
+      for (final (_, pin, mode) in vaneModes) pin: vaneAt(mode),
+    };
+    final vaneDioClients = <String, VaneClient>{
+      for (final (_, pin, mode) in vaneModes) pin: vaneAt(mode),
+    };
+    Dio dioWith([HttpClientAdapter? adapter]) {
+      final dio = Dio(
+        BaseOptions(
+          responseType: ResponseType.bytes,
+          // Status handling is the harness's job, uniformly across clients.
+          validateStatus: (_) => true,
+        ),
+      );
+      if (adapter != null) {
+        dio.httpClientAdapter = adapter;
+      }
+      return dio;
+    }
+
+    final vaneDios = <String, Dio>{
+      for (final entry in vaneDioClients.entries)
+        entry.key: dioWith(VaneDioAdapter(client: entry.value)),
+    };
+    final ioDio = dioWith(); // dio's stock dart:io adapter
+    final h2Dio = dioWith(
+      Http2Adapter(
+        ConnectionManager(),
+        // A pinned h2 cell must fail loudly, not silently downgrade: the
+        // adapter's default fallback would swap in dart:io HTTP/1.1 when the
+        // server does not ALPN h2.
+        onNotSupported: (options, requestStream, cancelFuture, e) => throw e,
       ),
-    )..httpClientAdapter = VaneDioAdapter(client: vaneForDio);
-    final ioDio = Dio(
-      BaseOptions(responseType: ResponseType.bytes, validateStatus: (_) => true),
     );
     final httpClient = http.Client();
 
-    rhttp.RhttpClient? rhttpH3;
-    rhttp.RhttpClient? rhttpDefault;
+    final rhttpClients = <String, rhttp.RhttpClient>{};
     if (rhttpLib != null) {
       await RustLib.init(
         externalLibrary: ExternalLibrary.open(rhttpLib),
         // Same flag Rhttp.init() passes.
         forceSameCodegenVersion: false,
       );
-      // Pinned to h3 (reqwest http3_prior_knowledge) — the symmetric
-      // head-to-head with vane's http3Only default…
-      rhttpH3 = await rhttp.RhttpClient.create(
-        settings: const rhttp.ClientSettings(
-          httpVersionPref: rhttp.HttpVersionPref.http3,
-          throwOnStatusCode: false,
-        ),
-      );
-      // …and untouched, negotiating whatever it prefers, because a default
-      // config is what most rhttp users actually run.
-      rhttpDefault = await rhttp.RhttpClient.create(
-        settings: const rhttp.ClientSettings(throwOnStatusCode: false),
+      // rhttp's prefs map onto reqwest exactly as vane's modes do on its own
+      // TCP/QUIC paths: http1_1 → http1_only(), http2 →
+      // http2_prior_knowledge(), http3 → http3_prior_knowledge() — the
+      // symmetric like-for-like head-to-heads.
+      const rhttpPrefs = <(String pin, rhttp.HttpVersionPref pref)>[
+        ('h1.1', rhttp.HttpVersionPref.http1_1),
+        ('h2', rhttp.HttpVersionPref.http2),
+        ('h3', rhttp.HttpVersionPref.http3),
+      ];
+      for (final (pin, pref) in rhttpPrefs) {
+        rhttpClients[pin] = await rhttp.RhttpClient.create(
+          settings: rhttp.ClientSettings(
+            httpVersionPref: pref,
+            throwOnStatusCode: false,
+          ),
+        );
+      }
+    }
+
+    Future<_Shot> dioShot(Dio dio, Uri url) async {
+      final r = await dio.getUri<List<int>>(url);
+      return (
+        status: r.statusCode ?? 0,
+        bytes: r.data?.length ?? 0,
+        proto: _dioProto(r.extra[HttpClientAdapter.extraKeyHttpVersion]),
       );
     }
 
     final contenders = <_Contender>[
-      _Contender(
-        'vane (ffi)',
-        fire: (url) async {
-          final r = await vaneClient.get(url.toString());
-          return (
-            status: r.statusCode,
-            bytes: r.body.length,
-            proto: _vaneProto(r.httpVersion),
-          );
-        },
-      ),
-      _Contender(
-        'vane (dio adapter)',
-        fire: (url) async {
-          final r = await vaneDio.getUri<List<int>>(url);
-          return (
-            status: r.statusCode ?? 0,
-            bytes: r.data?.length ?? 0,
-            proto: _dioProto(r.extra[HttpClientAdapter.extraKeyHttpVersion]),
-          );
-        },
-      ),
-      if (rhttpH3 != null)
+      // Grouped construction order = grouped tables read in run order; the
+      // per-round rotation below undoes any ordering advantage.
+      for (final (group, pin, _) in vaneModes) ...[
         _Contender(
-          'rhttp (h3)',
+          'vane (ffi, $pin)',
+          group,
           fire: (url) async {
-            final r = await rhttpH3!.getBytes(url.toString());
+            final r = await vaneClients[pin]!.get(url.toString());
             return (
               status: r.statusCode,
               bytes: r.body.length,
-              proto: _rhttpProto(r.version),
+              proto: _vaneProto(r.httpVersion),
             );
           },
         ),
-      if (rhttpDefault != null)
         _Contender(
-          'rhttp (default)',
-          fire: (url) async {
-            final r = await rhttpDefault!.getBytes(url.toString());
-            return (
-              status: r.statusCode,
-              bytes: r.body.length,
-              proto: _rhttpProto(r.version),
-            );
-          },
+          'vane (dio, $pin)',
+          group,
+          fire: (url) => dioShot(vaneDios[pin]!, url),
         ),
+      ],
+      if (rhttpClients.isNotEmpty)
+        for (final entry in rhttpClients.entries)
+          _Contender(
+            'rhttp (${entry.key})',
+            entry.key == 'h1.1'
+                ? 'HTTP/1.1'
+                : entry.key == 'h2'
+                ? 'HTTP/2'
+                : 'HTTP/3',
+            fire: (url) async {
+              final r = await entry.value.getBytes(url.toString());
+              return (
+                status: r.statusCode,
+                bytes: r.body.length,
+                proto: _rhttpProto(r.version),
+              );
+            },
+          ),
       _Contender(
         'dio (dart:io)',
-        fire: (url) async {
-          final r = await ioDio.getUri<List<int>>(url);
-          return (
-            status: r.statusCode ?? 0,
-            bytes: r.data?.length ?? 0,
-            proto: _dioProto(r.extra[HttpClientAdapter.extraKeyHttpVersion]),
-          );
-        },
+        'HTTP/1.1',
+        fire: (url) => dioShot(ioDio, url),
+      ),
+      _Contender(
+        'dio (http2 adapter)',
+        'HTTP/2',
+        fire: (url) => dioShot(h2Dio, url),
       ),
       _Contender(
         'package:http',
+        'HTTP/1.1',
         protoStated: true,
         fire: (url) async {
           final r = await httpClient.get(url);
@@ -326,13 +398,21 @@ void main() {
         }
       }
     } finally {
-      vaneDio.close();
+      for (final dio in vaneDios.values) {
+        dio.close();
+      }
       ioDio.close();
+      h2Dio.close();
       httpClient.close();
-      rhttpH3?.dispose();
-      rhttpDefault?.dispose();
-      await vaneClient.close();
-      await vaneForDio.close();
+      for (final client in rhttpClients.values) {
+        client.dispose();
+      }
+      for (final client in vaneClients.values) {
+        await client.close();
+      }
+      for (final client in vaneDioClients.values) {
+        await client.close();
+      }
       ffiPlatform.dispose();
       if (rhttpLib != null) {
         RustLib.dispose();
@@ -354,25 +434,24 @@ void main() {
         'rhttp: SKIPPED (librhttp not built — run tool/build_rhttp.sh first)',
       );
     }
-    print('');
-    print(
-      _row('client', <String>[
-        'proto',
-        'cold_ms',
-        'p50_ms',
-        'p95_ms',
-        'min_ms',
-        'max_ms',
-        'n',
-        'bytes',
-      ]),
-    );
-    for (final c in contenders) {
+
+    final header = _row('client', <String>[
+      'proto',
+      'cold_ms',
+      'p50_ms',
+      'p95_ms',
+      'min_ms',
+      'max_ms',
+      'n',
+      'bytes',
+    ]);
+
+    void printMeasured(_Contender c) {
       final pooled = c.pooled;
       if (pooled.isEmpty) {
         print(_row(c.name, const <String>[])); // name line, then the error
         print('  ERROR ${c.failure}');
-        continue;
+        return;
       }
       final protoLabel =
           (c.protocols.toList()..sort()).join('+') +
@@ -392,7 +471,36 @@ void main() {
       if (c.failure != null) {
         print('  PARTIAL: later requests failed with ${c.failure}');
       }
+      if (!c.protoStated &&
+          (c.protocols.length != 1 || c.protocols.single != c.group)) {
+        print(
+          '  NOTE: negotiated ${c.protocols.join('+')}, '
+          'not the pinned ${c.group}',
+        );
+      }
     }
+
+    // Primary view — one table per protocol, so the like-for-like comparison
+    // is the first thing a reader sees. Unsupported cells are stated.
+    for (final group in _groups) {
+      print('');
+      print('== $group ==');
+      print(header);
+      contenders.where((c) => c.group == group).forEach(printMeasured);
+      for (final (_, name, reason) in _unsupported.where(
+        (u) => u.$1 == group,
+      )) {
+        print('${name.padRight(22)}   unsupported: $reason');
+      }
+    }
+
+    // Secondary view — every measured row in one table, for cross-protocol
+    // reading within a client.
+    print('');
+    print('== all rows ==');
+    print(header);
+    contenders.forEach(printMeasured);
+
     print('');
     print('per-round p50_ms (drift check):');
     for (final c in contenders.where((c) => c.rounds.isNotEmpty)) {
@@ -413,16 +521,18 @@ void main() {
       'not a lab. See README.md.',
     );
 
-    // The benchmark exists to measure Vane; a run where Vane itself failed
-    // must be loud, not a quietly shorter table.
-    final vane = contenders.first;
-    expect(
-      vane.failure,
-      isNull,
-      reason:
-          'vane (ffi) failed — is $base HTTP/3-capable? '
-          'vane\'s default protocolMode is http3Only.',
-    );
-    expect(vane.pooled, hasLength(roundCount * perRound));
+    // The benchmark exists to measure Vane; a run where any Vane cell failed
+    // must be loud, not a quietly shorter table. A tcp-fallback-less dylib
+    // or an endpoint missing a protocol both land here.
+    for (final c in contenders.where((c) => c.name.startsWith('vane'))) {
+      expect(
+        c.failure,
+        isNull,
+        reason:
+            '${c.name} failed — does $base serve ${c.group}, and was '
+            'libvane built with default features (tcp-fallback)?',
+      );
+      expect(c.pooled, hasLength(roundCount * perRound));
+    }
   }, timeout: const Timeout(Duration(minutes: 20)));
 }
