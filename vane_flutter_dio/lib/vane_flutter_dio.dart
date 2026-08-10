@@ -34,11 +34,11 @@ import 'package:vane_flutter/vane_flutter.dart';
 ///   the core takes one string per name, so an `Iterable` value is joined with
 ///   `', '` and a null value is dropped.
 /// - Response headers are inflated the other way: the core returns one string
-///   per name and does NOT comma-join repeated ones (HTTP/3 keeps the first
-///   value it saw, the TCP fallback keeps the last), so every entry becomes a
-///   one-element list. `set-cookie` is the exception — it arrives as a genuine
-///   N-element list, which is what dio's `cookie_manager` reads. Those values
-///   are raw: a cookie Vane's own jar refused still appears among them.
+///   per name — a name the server repeated arrives comma-joined (`'a, b'`),
+///   identically on both transports — so every entry becomes a one-element
+///   list. `set-cookie` is the exception — it arrives as a genuine N-element
+///   list, which is what dio's `cookie_manager` reads. Those values are raw: a
+///   cookie Vane's own jar refused still appears among them.
 /// - The FFI response carries no reason phrase and no redirect chain, so
 ///   [ResponseBody.statusMessage] is left null, `isRedirect` stays false,
 ///   `redirects` stays null and [RequestOptions.maxRedirects] is ignored.

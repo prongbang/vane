@@ -269,6 +269,30 @@ val response = session.request("/upload", HttpMethod.POST)
     .execute()
 ```
 
+### Cancel Token
+
+```kotlin
+VaneCancelToken().use { token ->
+    val job = launch {
+        try {
+            session.request("/slow")
+                .cancelToken(token)
+                .execute()
+        } catch (error: VaneException.Cancelled) {
+            // request aborted
+        }
+    }
+
+    token.cancel() // safe from any thread
+    job.join()
+}
+```
+
+The native token is created eagerly, so `cancel()` always reaches the core
+immediately. A cancelled token stays cancelled, so reuse on a second request
+aborts that one too. `close()` (here via `use`) releases the native token;
+double-close and cancel-after-close are safe no-ops.
+
 ## iOS Usage
 
 ### Add The Package
@@ -439,6 +463,30 @@ let response = try await session.request("/upload", method: .post)
     .onDownloadProgress { received, total in }
     .execute()
 ```
+
+### Cancel Token
+
+```swift
+let token = VaneCancelToken()
+
+Task {
+    do {
+        _ = try await session.request("/slow")
+            .cancelToken(token)
+            .execute()
+    } catch VaneError.Cancelled {
+        // request aborted
+    }
+}
+
+token.cancel() // safe from any thread
+```
+
+The native token is created eagerly, so `cancel()` always reaches the core
+immediately. A cancelled token stays cancelled, so reuse on a second request
+aborts that one too. The token releases its native entry in `deinit` — keep it
+alive while the request is in flight, since a request whose token has been
+deallocated keeps running but can no longer be cancelled.
 
 ## Flutter Usage
 
@@ -651,9 +699,8 @@ are not retried unless `retryUnsafeMethods` is enabled.
 - `body` sends in-memory bytes
 - `bodyFilePath` / `bodyFile` uploads from a file path
 - `responseBodyPath` / `downloadToFile` streams the response body to a file
-- Android, iOS, and Flutter expose upload/download progress callbacks
-- Flutter also exposes cancel tokens; Swift/Kotlin cancel-token wrappers are
-  still future API work
+- Android, iOS, and Flutter expose upload/download progress callbacks and
+  cancel tokens
 
 ## Build And Verification
 
@@ -696,10 +743,8 @@ VANE_TEST_BASE_URL=https://<http3-enabled-host> swift test --package-path VaneSw
 - Proxy support requires an HTTPS MASQUE/CONNECT-UDP proxy; classic HTTP CONNECT
   proxies are not supported for QUIC
 - Dynamic DNS callback resolvers are not implemented
-- Swift/Kotlin high-level cancel-token wrappers are not exposed yet, although
-  Flutter supports cancel tokens
 - Response metadata: the negotiated protocol is available as
   `VaneResponse.httpVersion`, and `Set-Cookie` as `VaneResponse.setCookie`.
-  Remote IP is still future work, as are multi-value headers generally —
-  repeated non-cookie headers keep one value, and which one differs by
-  transport (HTTP/3 keeps the first, the TCP fallback the last)
+  Remote IP is still future work. Repeated non-cookie headers are comma-joined
+  into one `"a, b"` value (RFC 9110 §5.2), identically on both transports;
+  `set-cookie` alone stays a real list, via `VaneResponse.setCookie`

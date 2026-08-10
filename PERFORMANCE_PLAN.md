@@ -538,21 +538,23 @@ it carries no SLA.
   offset 3, so the struct neither grew nor moved a field. dio now sets
   `ResponseBody.extraKeyHttpVersion`, and `examples/protocol_check.rs`
   asserts the field instead of comparing response bodies.
-- Still open, and split out of the above: repeated NON-cookie headers diverge
-  between transports — HTTP/3 keeps the first value (`or_insert`,
-  `lib.rs`), the TCP fallback keeps the last (`insert`, `tcp.rs`). Neither
-  comma-joins, contrary to what both adapter doc blocks used to claim (now
-  corrected). Belongs to `PLAN.md`'s multi-value-headers item; changing it is
-  a behaviour change for existing callers and was deliberately not smuggled
-  into an additive diff.
+- ~~Repeated NON-cookie headers diverge between transports~~ — DONE
+  2026-08-10. Both transports now fold response headers through one
+  `ResponseState::merge_header`: repeats comma-join with `", "` in wire order
+  (RFC 9110 §5.2), `set-cookie` stays exempt (list only), and a repeated
+  `content-length` joins in the map while the body-reserve hint keeps
+  first-value semantics. The H3 redirect gate takes the first piece of a
+  joined `location` to match TCP's `.get()`. Behaviour change, shipped
+  deliberately on its own; cross-transport agreement pinned by twin tests
+  (offline stub on TCP, `merge_h3_header_block` unit on H3).
 
-## Where this stands — 2026-08-04
+## Where this stands — 2026-08-10
 
-Every numbered phase is done and committed, including Phase 5a (the item a
-naming collision hid). Measured result: warm pooled p50 **114 ms → 58.7 ms
+Every numbered phase is done and committed, plus cross-ABI cancellation and
+header unification. Measured result: warm pooled p50 **114 ms → 58.7 ms
 (−49%)** against cloudflare-quic.com, cold ~450 ms → ~262 ms. Current suite:
-78 Rust tests all-features / 58 `--no-default-features`, 5/5 live HTTP/3
-against pie.dev, Swift 14, dio 14, Flutter 38, size gate PASS.
+81 Rust tests all-features / 60 `--no-default-features`, 5/5 live HTTP/3
+against pie.dev, Kotlin 17, Swift 16, dio 14, Flutter 38, size gate PASS.
 
 | Phase | State |
 |-------|-------|
@@ -573,38 +575,45 @@ fallback rule in both directions; the `unexpected_eof` diagnosis and its fix;
 the httpbin-shaped HTTP/3 endpoint hunt (pie.dev); and the iOS app-size
 measurement.
 
+Closed 2026-08-10, previously the top of this list:
+
+1. ~~Cancellation is Dart-only~~ — `create_cancel_token`/`cancel_by_id`/
+   `free_cancel_token` are now UniFFI exports sharing the C ABI trio's
+   registry. Kotlin gets `VaneCancelToken : AutoCloseable` (eager native id,
+   `cancel()`, volatile `isCancelled`, bridge-stubbed for JVM tests), Swift a
+   final class with `deinit`-owned free; both wire through
+   `VaneRequestBuilder.cancelToken(...)` into the record field that already
+   existed. Eager creation removes the latch window Dart needs — Dart's token
+   registers late over the platform channel, theirs exists from birth.
+   Builder-only attach: convenience methods don't take a token; anyone
+   needing cancel routes through `request()`.
+2. ~~Repeated non-cookie headers diverge~~ — see the backlog entry above.
+3. ~~Kotlin coverage for `setCookie`/`httpVersion`~~ —
+   `VaneResponseFfiRoundTripTest` (7 tests) round-trips the RustBuffer wire
+   format converter-by-converter in declared field order, pins the
+   `VaneHttpVersion` discriminants 1-4, and was mutation-checked (swapping
+   two field reads fails it). H3's `http_version: Some(Http3)` got its
+   assertion in the interim-block test 2026-08-03. Still true and accepted:
+   nothing links the `small` XCFramework — its staleness is caught by
+   `release-build.sh` rebuilding it, not by a test.
+4. Housekeeping — `make clean` in `vane-rs/Makefile` (cargo clean for the
+   ~10 GB target/ plus vane-bindgen's); run it on low disk or after a
+   toolchain bump, at the price of one cold build.
+
 Open work, roughly by leverage:
 
-1. **Cancellation is Dart-only.** `vane_ffi_cancel_token_*` never got a UniFFI
-   export, so Kotlin and Swift callers cannot cancel a request at all. This is
-   the one acceptance bar the cross-ABI work missed, and it is a capability
-   gap rather than a polish item.
-2. **Repeated non-cookie headers diverge between transports** — HTTP/3 keeps
-   the first value (`or_insert`), the TCP fallback keeps the last (`insert`),
-   neither comma-joins. Same class of bug as the redirect divergence that was
-   just fixed: the same request returns different headers depending on which
-   transport served it. Belongs to `PLAN.md`'s multi-value-headers item;
-   fixing it is a behaviour change and was deliberately not smuggled into an
-   additive diff.
-3. **Test coverage the last round did not buy.** Kotlin asserts nothing about
-   `setCookie` or `httpVersion` through the JNA/RustBuffer path (its only
-   suite is `VaneSessionInterceptorTest`). Nothing links the `small`
-   XCFramework — `Package.swift` binds only the full one — so its staleness is
-   caught by `release-build.sh` rebuilding it, not by a test. H3's
-   `http_version: Some(Http3)` is justified by comment, not by an assertion.
-4. **Upstream PR for rustls-platform-verifier #221** — patch ready at
+1. **Upstream PR for rustls-platform-verifier #221** — patch ready at
    `docs/upstream/`, not opened; needs a fork and is an outward-facing action.
-5. Live-infra gaps that still need infrastructure we do not have: end-to-end
+2. Live-infra gaps that still need infrastructure we do not have: end-to-end
    session resumption (needs a server that issues a NewSessionTicket) and the
    MASQUE inner MTU fix under load (needs a live MASQUE proxy).
-6. `PLAN.md`'s release checklist still has five unticked items that all need
+3. `PLAN.md`'s release checklist still has five unticked items that all need
    real hardware: AAR from a clean CI checkout, a clean Android app on a real
    device, Swift live H3 plus a clean app import, and TLS tests on devices.
-7. Housekeeping: `vane-rs/target` reaches ~10 GB and this machine hit ENOSPC
-   twice — a `cargo clean` policy is overdue. Two traps worth knowing before
-   blaming a build: an emulator can wedge into a state where `adb devices`
-   reports `device` while every shell command hangs (`adb kill-server` exposes
-   it as `offline`), and Gradle will wait on that forever with no timeout.
+4. Emulator traps worth knowing before blaming a build: an emulator can wedge
+   into a state where `adb devices` reports `device` while every shell command
+   hangs (`adb kill-server` exposes it as `offline`), and Gradle will wait on
+   that forever with no timeout.
 Worth keeping for whoever meets it again: the `unexpected_eof` flakiness
 (fixed 2026-07-29) was the hyper connection-pool checkout race — an idle
 connection whose FIN has arrived but has not been processed is handed out, the
