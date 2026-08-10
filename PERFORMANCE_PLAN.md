@@ -236,7 +236,7 @@ Design decisions (locked unless overridden):
 |---|--------|-------|--------|
 | 7.1 | DevTools Network tab via `package:http_profile` | Record request/response events (method, headers, timings, body sizes) from the Dart layer, the same mechanism `cronet_http`/`cupertino_http` use. Pure Dart-side change in `vane_flutter` | M |
 | 7.2 | `package:http` adapter | `VaneHttpClient extends http.BaseClient` implementing `send()` → `StreamedResponse`. Unlocks most of the pub.dev ecosystem | S-M |
-| 7.3 | dio adapter | DONE 2026-07-29: `vane_flutter_dio/` sibling package (dio 5.11, `publish_to: none` while it uses a path dependency), `VaneDioAdapter implements HttpClientAdapter`, cancelFuture → `VaneCancelToken`, 12 contract tests green. dio's three timeout budgets collapse onto vane's single whole-request deadline (largest wins). Ceilings documented: buffered upload, single-valued headers, no reason phrase, no `set-cookie` | M |
+| 7.3 | dio adapter | DONE 2026-07-29: `vane_flutter_dio/` sibling package (dio 5.11, `publish_to: none` while it uses a path dependency), `VaneDioAdapter implements HttpClientAdapter`, cancelFuture → `VaneCancelToken`, 12 contract tests green. dio's three timeout budgets collapse onto vane's single whole-request deadline (largest wins). Ceilings documented: buffered upload, single-valued headers, no reason phrase. `set-cookie` and the negotiated protocol were added 2026-08-03 (multi-value list; `Response.extra['httpVersion']`), which raises the dio floor to 5.9.2 | M |
 | 7.4 | `dart:io` `HttpClient` interface | Decision-gated: the full `HttpClient`/`HttpClientRequest`/`HttpClientResponse` surface is large, and 7.2+7.3 already cover the ecosystem's real entry points. Build only when a consumer actually requires the `dart:io` interface (e.g. `HttpOverrides`) | L |
 
 - Acceptance: a request made through the `http` adapter and through dio shows
@@ -502,33 +502,57 @@ it carries no SLA.
 
 ## Backlog surfaced by batch-3 reviews (cross-ABI, needs core + bindings)
 
-- Surface `set-cookie` values in responses: both transports divert them into
-  the cookie jar and never expose them, so `package:http` auth libraries see
-  no session header through the adapter. Needs `VaneFfiResponse` + UniFFI
-  record + both transports; documented as an adapter ceiling meanwhile.
-- Public pre-startable cancel token: the http adapter's `Abortable` wiring
-  cannot cancel the native side in the window before the token registers
-  (request runs to completion, response discarded — contract still holds).
-  Needs a public API to create/register a token before execute. Both the
-  `http` and dio adapters hit this.
+- ~~Surface `set-cookie` values in responses~~ — DONE 2026-08-03.
+  `VaneResponse.set_cookie: Vec<String>` carries the raw final-response
+  values on both transports; the C ABI reuses `VaneFfiHeaderArray` (repeated
+  `("set-cookie", value)` entries, no struct growth). The TCP path also had a
+  real hole: `read_body`'s skip was unconditional while the jar harvest was
+  gated on `cookies_enabled`, so with the jar off `Set-Cookie` was dropped
+  entirely. dio now exposes a genuine multi-value list; `package:http` gets
+  the comma-joined form its own `IOClient` produces.
+- Public pre-startable cancel token — **PARTIALLY** done 2026-08-03, Dart
+  only. The diagnosis was one field off: `VaneCancelToken` was already
+  publicly constructible and `execute`'s registration already guarded on
+  `_id == null`, so a caller-held token always flowed through. The real defect
+  was that `cancel()` with a null `_id` discarded the intent *forever*.
+  `cancel()` now latches and `execute` replays it at registration — three
+  lines of Dart, no new API, no Rust change. Fixes both adapters and the
+  README example, which never cancelled anything as written.
+  **Still open:** Kotlin and Swift have no cancel token at all. The UniFFI
+  export list is `create_default_config`, `create_vane_client`,
+  `create_progress`, `progress_snapshot_by_id`, `free_progress` and the
+  `VaneClient` methods — the `vane_ffi_cancel_token_*` functions are C ABI
+  only, so cancellation is reachable from Dart and from nothing else. That is
+  the one place this work did not meet its acceptance bar.
 - ~~Structured error kind across the FFI boundary~~ — DONE 2026-07-29.
   `VaneError` gained eight variants beside `Generic`; the dio adapter switches
   on the kind instead of substring-matching English error text, and the
   fallback rule now narrows (config failures no longer burn a TCP attempt)
   and widens (POST/PATCH fall back when the handshake never completed)
   correctly.
-- Negotiated protocol on `VaneResponse`: no field reports HTTP/1.1 vs h2 vs
-  h3. dio 5.11's `ResponseBody.extraKeyHttpVersion` is left unset because of
-  it, and `examples/protocol_check.rs` has to infer the protocol from
-  response body length. Pairs with the "HTTP version, remote IP, multi-value
-  headers" response-metadata item already in `PLAN.md`.
+- ~~Negotiated protocol on `VaneResponse`~~ — DONE 2026-08-03.
+  `http_version: Option<VaneHttpVersion>` — HTTP/3 is a constant on the h3
+  path (the quiche config offers only `h3::APPLICATION_PROTOCOL`, MASQUE
+  included), and the TCP path maps `reqwest::Response::version()` off the
+  final hop. It rides the C ABI as a `u8` in the one free padding byte at
+  offset 3, so the struct neither grew nor moved a field. dio now sets
+  `ResponseBody.extraKeyHttpVersion`, and `examples/protocol_check.rs`
+  asserts the field instead of comparing response bodies.
+- Still open, and split out of the above: repeated NON-cookie headers diverge
+  between transports — HTTP/3 keeps the first value (`or_insert`,
+  `lib.rs`), the TCP fallback keeps the last (`insert`, `tcp.rs`). Neither
+  comma-joins, contrary to what both adapter doc blocks used to claim (now
+  corrected). Belongs to `PLAN.md`'s multi-value-headers item; changing it is
+  a behaviour change for existing callers and was deliberately not smuggled
+  into an additive diff.
 
-## Where this stands — 2026-07-29
+## Where this stands — 2026-08-04
 
-Everything originally planned is done and committed, including Phase 5a (the
-item a naming collision hid — closed 2026-07-29, kept, see above and
-`ARTIFACT_SIZES.md`). Measured result: warm pooled p50 **114 ms →
-58.7 ms (−49%)** against cloudflare-quic.com, cold ~450 ms → ~262 ms.
+Every numbered phase is done and committed, including Phase 5a (the item a
+naming collision hid). Measured result: warm pooled p50 **114 ms → 58.7 ms
+(−49%)** against cloudflare-quic.com, cold ~450 ms → ~262 ms. Current suite:
+78 Rust tests all-features / 58 `--no-default-features`, 5/5 live HTTP/3
+against pie.dev, Swift 14, dio 14, Flutter 38, size gate PASS.
 
 | Phase | State |
 |-------|-------|
@@ -551,19 +575,36 @@ measurement.
 
 Open work, roughly by leverage:
 
-1. **Cross-ABI backlog** (below): surface `set-cookie`, a pre-startable cancel
-   token, and a negotiated-protocol field on `VaneResponse`. Now the largest
-   remaining item, since the H3 redirect gap closed 2026-08-03.
-2. **Upstream PR for rustls-platform-verifier #221** — patch ready at
+1. **Cancellation is Dart-only.** `vane_ffi_cancel_token_*` never got a UniFFI
+   export, so Kotlin and Swift callers cannot cancel a request at all. This is
+   the one acceptance bar the cross-ABI work missed, and it is a capability
+   gap rather than a polish item.
+2. **Repeated non-cookie headers diverge between transports** — HTTP/3 keeps
+   the first value (`or_insert`), the TCP fallback keeps the last (`insert`),
+   neither comma-joins. Same class of bug as the redirect divergence that was
+   just fixed: the same request returns different headers depending on which
+   transport served it. Belongs to `PLAN.md`'s multi-value-headers item;
+   fixing it is a behaviour change and was deliberately not smuggled into an
+   additive diff.
+3. **Test coverage the last round did not buy.** Kotlin asserts nothing about
+   `setCookie` or `httpVersion` through the JNA/RustBuffer path (its only
+   suite is `VaneSessionInterceptorTest`). Nothing links the `small`
+   XCFramework — `Package.swift` binds only the full one — so its staleness is
+   caught by `release-build.sh` rebuilding it, not by a test. H3's
+   `http_version: Some(Http3)` is justified by comment, not by an assertion.
+4. **Upstream PR for rustls-platform-verifier #221** — patch ready at
    `docs/upstream/`, not opened; needs a fork and is an outward-facing action.
-3. Live-infra gaps that still need infrastructure we do not have: end-to-end
+5. Live-infra gaps that still need infrastructure we do not have: end-to-end
    session resumption (needs a server that issues a NewSessionTicket) and the
    MASQUE inner MTU fix under load (needs a live MASQUE proxy).
-4. Housekeeping: `vane-rs/target` reached ~10 GB twice today and the machine
-   hit ENOSPC — a `cargo clean` policy or scheduled prune is overdue. The
-   emulator also wedged into a state where `adb devices` reported `device`
-   while every shell command hung; `adb kill-server` exposed it as `offline`.
-   Worth knowing before blaming a build.
+6. `PLAN.md`'s release checklist still has five unticked items that all need
+   real hardware: AAR from a clean CI checkout, a clean Android app on a real
+   device, Swift live H3 plus a clean app import, and TLS tests on devices.
+7. Housekeeping: `vane-rs/target` reaches ~10 GB and this machine hit ENOSPC
+   twice — a `cargo clean` policy is overdue. Two traps worth knowing before
+   blaming a build: an emulator can wedge into a state where `adb devices`
+   reports `device` while every shell command hangs (`adb kill-server` exposes
+   it as `offline`), and Gradle will wait on that forever with no timeout.
 Worth keeping for whoever meets it again: the `unexpected_eof` flakiness
 (fixed 2026-07-29) was the hyper connection-pool checkout race — an idle
 connection whose FIN has arrived but has not been processed is handed out, the

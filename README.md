@@ -276,6 +276,16 @@ val response = session.request("/upload", HttpMethod.POST)
 Add `VaneSwift` through Swift Package Manager. The package exposes the
 `VaneSwift` library and bundles `RustFramework.xcframework`.
 
+> Upgrading past 2026-08-03: each XCFramework slice now keeps its header at
+> `Headers/vaneFFI/vaneFFI.h` instead of `headers/RustFramework/vaneFFI.h`
+> (cargo-swift 0.11 moved it; the module name `vaneFFI` and the bundle name
+> `RustFramework` are unchanged, so SwiftPM consumers need no edit). Only a
+> checked-in Xcode project that names the old header path directly has to
+> change. On a case-insensitive filesystem git reports the twelve replacements
+> as untracked additions beside twelve deletions, so stage the XCFramework
+> directories explicitly — `git add -u` alone commits the deletions and drops
+> the headers, leaving an XCFramework that fails `#if canImport(vaneFFI)`.
+
 ```swift
 .package(path: "../VaneSwift")
 ```
@@ -566,9 +576,21 @@ final future = Vane.get(
   options: VaneRequestOptions(cancelToken: token),
 );
 
+// Safe at any point, including before the request reaches the core: the
+// intent is latched and replayed as soon as the token registers.
 await token.cancel();
+try {
+  await future;
+} on VaneHttpException catch (error) {
+  assert(error.kind == VaneErrorKind.cancelled);
+}
 await token.dispose();
 ```
+
+A cancelled token stays cancelled until it is disposed, so an undisposed token
+passed to a second request aborts that one too. `dispose()` clears the latch as
+well as the native id, so disposing in a `finally` — as both adapters do — makes
+the token safe to reuse.
 
 ### Builder API
 
@@ -641,8 +663,13 @@ From the repository root:
 (cd vane-rs && cargo fmt)
 (cd vane-rs && cargo test --release)
 (cd vane-rs && cargo clippy --release --all-targets -- -D warnings)
-make build_swift
-make build_kotlin
+# Rebuild the native artifacts whenever vane-rs changes. Skipping these is how
+# a stale libvane.so or a stale small-profile libvane.a ships: adding a UniFFI
+# record field does not move a function checksum, so nothing at load time
+# notices, and the Kotlin/Swift unit tests below never load them.
+(cd vane-rs && make build_swift)
+(cd vane-rs && make build_swift_small)
+(cd vane-rs && make build_kotlin)   # needs ANDROID_NDK_HOME
 swift test --package-path VaneSwift
 ./gradlew -p VaneKotlin :library:testDebugUnitTest
 (cd vane_flutter && flutter test)
@@ -671,5 +698,8 @@ VANE_TEST_BASE_URL=https://<http3-enabled-host> swift test --package-path VaneSw
 - Dynamic DNS callback resolvers are not implemented
 - Swift/Kotlin high-level cancel-token wrappers are not exposed yet, although
   Flutter supports cancel tokens
-- Response metadata such as negotiated protocol version, remote IP, and
-  multi-value headers is future work
+- Response metadata: the negotiated protocol is available as
+  `VaneResponse.httpVersion`, and `Set-Cookie` as `VaneResponse.setCookie`.
+  Remote IP is still future work, as are multi-value headers generally —
+  repeated non-cookie headers keep one value, and which one differs by
+  transport (HTTP/3 keeps the first, the TCP fallback the last)

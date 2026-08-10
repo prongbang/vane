@@ -59,9 +59,15 @@ front:
   before the request starts and the response arrives as a single chunk —
   `onSendProgress` tracks buffering rather than the wire, and
   `onReceiveProgress` fires once.
-- Response headers are single-valued (repeated ones already comma-joined by the
-  core), so each becomes a one-element list. `set-cookie` is not surfaced at
-  all: use Vane's own cookie jar.
+- Response headers come back one string per name and the core does NOT
+  comma-join repeated ones (HTTP/3 keeps the first value it saw, the TCP
+  fallback keeps the last), so each becomes a one-element list. `set-cookie` is
+  the exception: it arrives as a genuine N-element list, which is what dio's
+  `cookie_manager` reads. Those values are raw — a cookie Vane's own jar
+  refused (a public-suffix `Domain`, or an IP literal) still appears among
+  them, so a third-party cookie store in front of this adapter admits what
+  Vane deliberately rejected, and it does so even with
+  `VaneConfiguration(cookiesEnabled: false)`.
 - No reason phrase and no redirect chain come back over FFI, so
   `Response.statusMessage` is null, `isRedirect` is false and `maxRedirects` is
   ignored. `followRedirects` is honored.

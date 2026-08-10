@@ -34,32 +34,26 @@ import 'package:vane_flutter/vane_flutter.dart';
 ///   the core takes one string per name, so an `Iterable` value is joined with
 ///   `', '` and a null value is dropped.
 /// - Response headers are inflated the other way: the core returns one string
-///   per name — repeated headers already comma-joined — so every entry becomes
-///   a one-element list. `Headers.value()` reads normally; `Headers[name]`
-///   returns that single joined element instead of N separate ones.
-/// - `set-cookie` never appears in the response headers: the core routes it
-///   into its own cookie jar and does not re-surface it. Session and auth
-///   interceptors that read `set-cookie` themselves will see nothing — enable
-///   Vane's cookie jar instead ([VaneConfiguration.cookiesEnabled]).
+///   per name and does NOT comma-join repeated ones (HTTP/3 keeps the first
+///   value it saw, the TCP fallback keeps the last), so every entry becomes a
+///   one-element list. `set-cookie` is the exception — it arrives as a genuine
+///   N-element list, which is what dio's `cookie_manager` reads. Those values
+///   are raw: a cookie Vane's own jar refused still appears among them.
 /// - The FFI response carries no reason phrase and no redirect chain, so
 ///   [ResponseBody.statusMessage] is left null, `isRedirect` stays false,
 ///   `redirects` stays null and [RequestOptions.maxRedirects] is ignored.
 ///   [RequestOptions.followRedirects] is honored.
 /// - [RequestOptions.persistentConnection] is ignored: connection reuse is a
 ///   client-wide Vane setting, not a per-request one.
-/// - `ResponseBody.extraKeyHttpVersion` is not set: the FFI response does not
-///   say which protocol served the request, and with fallback enabled that is
-///   not something the adapter can assume.
 /// - dio's three timeout budgets collapse onto Vane's single whole-request
 ///   deadline, so the largest configured one wins (rounded up to whole
 ///   seconds). A shorter pick would abort requests dio's own adapter would
 ///   still be waiting on.
 ///
 /// The `cancelFuture` dio hands to [fetch] is wired to a [VaneCancelToken] and
-/// surfaces as [DioExceptionType.cancel]. One gap: the token only registers
-/// with the core inside `execute`, so a cancel landing before that window does
-/// not reach the native side — the request runs to completion and its response
-/// is discarded, but the caller still sees a `cancel`.
+/// surfaces as [DioExceptionType.cancel]. A cancel landing before the token has
+/// registered with the core is latched and replayed at registration, so the
+/// native request is stopped rather than run to completion.
 class VaneDioAdapter implements HttpClientAdapter {
   /// Creates an adapter. Pass [client] to share an existing [VaneClient] — its
   /// configuration, interceptors and connection pool — in which case [close]
@@ -147,19 +141,45 @@ class VaneDioAdapter implements HttpClientAdapter {
       }
 
       return ResponseBody(
-        // Single chunk over the zero-copy body view: no copy happens until dio
-        // collects the stream.
-        Stream<Uint8List>.value(response.body),
-        response.statusCode,
-        headers: <String, List<String>>{
-          for (final header in response.headers.entries)
-            header.key: <String>[header.value],
-        },
-      );
+          // Single chunk over the zero-copy body view: no copy happens until dio
+          // collects the stream.
+          Stream<Uint8List>.value(response.body),
+          response.statusCode,
+          headers: <String, List<String>>{
+            for (final header in response.headers.entries)
+              header.key: <String>[header.value],
+            // A genuine N-element list, which is what dio's cookie_manager
+            // reads. Copied, not aliased: dio's `Headers.add`/`remove` mutate
+            // the stored list in place, so handing over the response's own
+            // list would let an interceptor either throw on the fixed-length
+            // list the MethodChannel path builds, or silently rewrite the
+            // caller's `VaneResponse.setCookie`.
+            if (response.setCookie.isNotEmpty)
+              'set-cookie': List<String>.of(response.setCookie),
+          },
+        )
+        ..extra.addAll(<String, Object?>{
+          // Omitted rather than guessed when the protocol is unknown, matching
+          // dio's own IO adapter.
+          HttpClientAdapter.extraKeyHttpVersion: ?_dioHttpVersion(
+            response.httpVersion,
+          ),
+        });
     } finally {
       await token?.dispose();
     }
   }
+
+  /// dio documents only `'1.0'`, `'1.1'` and `'2.0'` (its IO adapter cannot
+  /// produce anything else); `'3.0'` is the consistent extension, and omitting
+  /// it would make the key mean "served over TCP" rather than "protocol known".
+  static String? _dioHttpVersion(VaneHttpVersion? version) => switch (version) {
+    VaneHttpVersion.http10 => '1.0',
+    VaneHttpVersion.http11 => '1.1',
+    VaneHttpVersion.http2 => '2.0',
+    VaneHttpVersion.http3 => '3.0',
+    null => null,
+  };
 
   /// The core takes a complete body, so the stream is drained up front rather
   /// than forwarded.
@@ -240,12 +260,12 @@ class VaneDioAdapter implements HttpClientAdapter {
       ),
       // Transport failures — DNS, QUIC, I/O, proxy — plus anything the core
       // did not classify and the plumbing errors the FFI layer raises itself.
-      VaneErrorKind.transport || VaneErrorKind.unknown =>
-        DioException.connectionError(
-          requestOptions: options,
-          reason: error.message,
-          error: error,
-        ),
+      VaneErrorKind.transport ||
+      VaneErrorKind.unknown => DioException.connectionError(
+        requestOptions: options,
+        reason: error.message,
+        error: error,
+      ),
     };
   }
 

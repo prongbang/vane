@@ -11,7 +11,9 @@ environment:
   flutter: '>=3.3.0'
 
 dependencies:
-  dio: ^5.9.0
+  # 5.9.2 is the floor: `HttpClientAdapter.extraKeyHttpVersion` does not exist
+  # before it, and this adapter sets it.
+  dio: ^5.9.2
   # Repo-local sibling package. Publishing this to pub.dev would need a version
   # constraint (`vane_flutter: ^x.y.z`) instead of a path.
   vane_flutter:

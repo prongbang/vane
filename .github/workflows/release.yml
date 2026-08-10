@@ -51,7 +51,12 @@ jobs:
       - name: Install Rust release tools
         run: |
           cargo install cargo-ndk --locked
-          cargo install cargo-swift --locked
+          # Pinned to match vane-rs/Makefile's `setup:`. `--locked` pins the
+          # tool's dependencies, not the tool: unpinned, a warm ~/.cargo/bin
+          # keeps an older cargo-swift (0.9 bundles uniffi 0.29, which cannot
+          # read 0.31's record-field defaults), and a newer one changes the
+          # emitted XCFramework layout under the staleness gate below.
+          cargo install cargo-swift --version "^0.11" --locked
           cargo install --path vane-rs/vane-bindgen --locked
 
       - name: Verify release build

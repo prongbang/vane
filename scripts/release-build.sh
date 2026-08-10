@@ -16,6 +16,12 @@ cargo test --release
 cargo clippy --release --all-targets -- -D warnings
 make build_kotlin
 make build_swift
+# The small profile is tracked in git and consumed by anyone who swaps it in,
+# but nothing at build or load time notices it going stale: adding a UniFFI
+# record field does not move a function checksum, so a small archive built
+# against an older record reads N+1 fields out of an N-field RustBuffer and
+# traps on every response. Build it here rather than by hand.
+make build_swift_small
 (
     cd vane-bindgen
     cargo run --bin uniffi-bindgen generate "$CARGO_TARGET_DIR/release/libvane.dylib" \

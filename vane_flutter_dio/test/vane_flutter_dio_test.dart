@@ -61,7 +61,8 @@ class _RecordingPlatform
   Future<int> createCancelToken() async => 1;
 
   @override
-  Future<void> cancelToken(int id) async {}
+  Future<void> cancelToken(int id) async => cancelledTokens.add(id);
+  final List<int> cancelledTokens = <int>[];
 
   @override
   Future<void> freeCancelToken(int id) async {}
@@ -131,8 +132,53 @@ void main() {
     expect(response.isRedirect, isFalse);
     expect(response.headers['content-type'], <String>['text/plain']);
     expect(response.headers['x-multi'], <String>['a, b']);
+    expect(response.headers, isNot(contains('set-cookie')));
+    expect(
+      response.extra,
+      isNot(contains(HttpClientAdapter.extraKeyHttpVersion)),
+      reason: 'an unknown protocol omits the key, as dio\'s own adapter does',
+    );
     expect(utf8.decode(await _drain(response.stream)), 'hello');
   });
+
+  test(
+    'set-cookie stays a real multi-value list and the protocol is set',
+    () async {
+      fake.response = VaneResponse(
+        statusCode: 200,
+        headers: const <String, String>{'content-type': 'text/plain'},
+        body: Uint8List(0),
+        isSuccess: true,
+        url: 'https://example.com/thing',
+        setCookie: const <String>['a=1; Path=/', 'b=2; Path=/'],
+        httpVersion: VaneHttpVersion.http2,
+      );
+
+      final body = await adapter.fetch(
+        RequestOptions(path: 'https://example.com/thing'),
+        null,
+        null,
+      );
+
+      // Two entries, not one joined string: this is what dio's cookie_manager
+      // reads, and joining would be unsplittable (Expires contains a comma).
+      expect(body.headers['set-cookie'], <String>[
+        'a=1; Path=/',
+        'b=2; Path=/',
+      ]);
+      expect(body.extra[HttpClientAdapter.extraKeyHttpVersion], '2.0');
+
+      // The list handed to dio is a copy, not the response's own. dio's
+      // `Headers.add`/`remove` mutate the stored list in place, so aliasing
+      // would throw `UnsupportedError` here on the fixed-length list the
+      // MethodChannel path builds (and on this const fixture), and silently
+      // rewrite `VaneResponse.setCookie` on the growable FFI one.
+      final headers = Headers.fromMap(body.headers);
+      headers.add('set-cookie', 'c=3; Path=/');
+      expect(headers['set-cookie'], hasLength(3));
+      expect(fake.response.setCookie, hasLength(2));
+    },
+  );
 
   test('the request stream is collected into the core body', () async {
     await adapter.fetch(
@@ -250,7 +296,11 @@ void main() {
           null,
         ),
         throwsA(
-          isA<DioException>().having((e) => e.type, '${entry.key}', entry.value),
+          isA<DioException>().having(
+            (e) => e.type,
+            '${entry.key}',
+            entry.value,
+          ),
         ),
       );
     }
@@ -272,6 +322,8 @@ void main() {
       ),
     );
     expect(fake.lastRequest, isNull);
+    // The adapter refuses before `execute`, so nothing is registered to cancel.
+    expect(fake.cancelledTokens, isEmpty);
   });
 
   test('cancelling in flight surfaces as DioExceptionType.cancel', () async {
