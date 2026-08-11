@@ -58,6 +58,9 @@ class _RecordingPlatform
   ) async {}
 
   @override
+  Future<void> warmup(int handle, String? url) async {}
+
+  @override
   Future<int> createCancelToken() async => 1;
 
   @override

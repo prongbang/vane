@@ -119,6 +119,30 @@ performance benefit.
 
 - Create one `VaneSession` / `VaneClient` per API domain or dependency-injection
   scope and reuse it.
+- **Call `warmup()` at app startup, off the main thread.** The first request over
+  the TCP fallback otherwise pays for the tokio runtime, the platform trust
+  store (a JNI trip on Android), and the TLS handshake all at once — measured at
+  0.87–1.07 s on an Android emulator, against 45–200 ms for other clients.
+  `warmup()` moves that cost to startup and pre-warms a session so the first real
+  handshake resumes; the same first request then lands in 54–100 ms. It warms
+  only what the protocol mode can use (`Http3Only` pre-connects QUIC and never
+  touches tokio), is safe to call repeatedly, and never throws — a failed warmup
+  just means the first request pays what it would have paid anyway.
+
+  ```kotlin
+  // Android — at startup, not on the main thread
+  scope.launch(Dispatchers.IO) { session.warmup() }
+  ```
+
+  ```swift
+  // iOS
+  Task.detached { await session.warmup() }
+  ```
+
+  ```dart
+  // Flutter
+  unawaited(client.warmup());
+  ```
 - Use direct helpers (`get`, `postJson`, `uploadFile`, `download`) for common
   requests.
 - Use the builder API only when a request needs custom headers, query params,

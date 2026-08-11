@@ -649,11 +649,51 @@ change and say nothing about whether the absolute number is any good. Every
 phase in this document reported honest improvements against Vane's own past
 while a 40 ms structural stall sat untouched in the drive loop.
 
+## Cross-client benchmarking — 2026-08-11, and what it cost to learn
+
+Benchmarking against peers (`vane_benchmark/`, `vane_benchmark_ios/`,
+`VaneKotlin/BENCHMARK.md`) found more real defects in a day than any
+self-relative measurement had in months:
+
+- The **drive-loop stall** above (warm H3 69 → 27 ms).
+- **The Android AAR at HEAD could not load at all** — 49 undefined BoringSSL
+  symbols from a poisoned boring-sys CMakeCache; a cdylib link tolerates
+  undefined symbols, unit tests never load the `.so`, and the CI staleness
+  gate only diffs bytes, so nothing caught it. `build_so` now ends in
+  `check_so_links`.
+- **Both platform artifacts shipped a stale core** for hours after the
+  drive-loop fix, because rebuilding them was treated as a follow-up rather
+  than part of the change. The iOS benchmark measured Vane's h3 at 75-77 ms
+  and spent a full investigation blaming `--lib-type static`; the archive was
+  simply two commits old. Rebuild artifacts in the same commit as a core fix.
+- **Android TCP cold start at 0.87-1.07 s** against 45-200 ms for
+  Cronet/OkHttp/Retrofit — closed by `warmup()` (54-100 ms after warmup).
+  Diagnosing it surfaced the root disease: the vendored platform verifier
+  re-runs PKIX path building and revocation on **every handshake**, ~350-400 ms
+  each on Android. `warmup()` sidesteps it with session resumption; caching
+  that state in the verifier is the actual fix and is still open.
+
+Standing results, all as measured, Vane's losses included: warm p50 is a parity
+band with the field on every platform; Cronet still beats Vane at HTTP/3 on
+Android (25.8 vs 35.7 ms, stable across runs); Vane's p95 tail is the fattest
+of its group on Apple platforms across all three protocols while its medians
+sit at parity.
+
 Open work, roughly by leverage:
 
-1. **Upstream PR for rustls-platform-verifier #221** — patch ready at
+1. **Vane's fat p95 tail on Apple, and the h3 gap to Cronet on Android.**
+   Medians are at parity; tails are not (h1 to 246 ms, h3 to 180 ms against
+   URLSession's 27-45 ms band). Cause unmeasured — diagnose before fixing.
+   Prime suspect worth ruling out first: pooled-connection reuse-retry paying
+   an occasional full reconnect.
+2. **Per-handshake PKIX cost in the vendored Android verifier** (~350-400 ms).
+   `warmup()` hides it for the first request; every non-resumed handshake
+   still pays it.
+3. **TCP session resumption does not honour the never-resume-pinned-hosts rule**
+   the H3 path enforces — a pre-existing asymmetry surfaced by the warmup work.
+4. **Upstream PR for rustls-platform-verifier #221** — patch ready at
    `docs/upstream/`, not opened; needs a fork and is an outward-facing action.
-2. ~~End-to-end session resumption~~ — CLOSED 2026-08-10 by the in-process
+5. ~~End-to-end session resumption~~ — CLOSED 2026-08-10 by the in-process
    HTTP/3 test server (`vane-rs/src/h3_offline.rs`, cfg(test) only): the
    server issues NewSessionTickets and records `is_resumed()` per
    connection; offline tests pin `[false, true]` for a non-pinned host and
@@ -662,10 +702,10 @@ Open work, roughly by leverage:
    Bonus offline coverage from the same server: `/get`+`/post` echo,
    cookie-set-on-302 readback, and a 3-hop redirect chain on the H3 wire —
    the env-gated live tests stay as-is.
-3. `PLAN.md`'s release checklist still has five unticked items that all need
+6. `PLAN.md`'s release checklist still has five unticked items that all need
    real hardware: AAR from a clean CI checkout, a clean Android app on a real
    device, Swift live H3 plus a clean app import, and TLS tests on devices.
-4. Emulator traps worth knowing before blaming a build: an emulator can wedge
+7. Emulator traps worth knowing before blaming a build: an emulator can wedge
    into a state where `adb devices` reports `device` while every shell command
    hangs (`adb kill-server` exposes it as `offline`), and Gradle will wait on
    that forever with no timeout.
