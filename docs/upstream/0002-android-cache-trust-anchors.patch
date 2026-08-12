@@ -1,0 +1,114 @@
+From 40015d890a4a5ecd98f6c2c08c011ec984ea0a24 Mon Sep 17 00:00:00 2001
+From: Vane maintainers <dev.prongbang@gmail.com>
+Date: Wed, 12 Aug 2026 14:25:13 +0700
+Subject: [PATCH 2/2] android: extract the system trust anchors once instead of
+ per verification
+
+PKIXBuilderParameters(KeyStore, ...) re-enumerates the keystore and re-parses
+every root certificate on every call. Against AndroidCAStore that means
+reading the whole system CA directory from disk on each verification, which
+dominates the cost of every handshake that does not resume: measured at
+46-310 ms per verification on an API 35 arm64 emulator, against 3-26 ms for
+the revocation evaluation it precedes and under 6 ms for everything else in
+verifyCertificateChain.
+
+Extract the trust anchors once per process and build the parameters from that
+set instead. The JDK constructor performs exactly this extraction internally
+before delegating to the Set<TrustAnchor> constructor, so identical store
+content yields an identical parameters object, and TrustAnchor and its
+certificates are immutable, so the set is safe to share across threads.
+
+No verdict is cached. Path building, expiry checking and revocation all still
+run per verification, and the trust decision itself continues to come from
+checkServerTrusted against systemTrustManager -- which this crate already
+caches for the process lifetime, so a CA added after start was refused before
+these anchors were ever consulted, and a CA removed after start was already a
+staleness window.
+
+The mock keystore that the instrumented tests mutate between cases is excluded
+by identity check, and an empty anchor set falls back to the original call, so
+exception behaviour is unchanged.
+
+Measured downstream on a warm process, full non-resumed verification:
+www.cloudflare.com 291-299 ms -> 29-36 ms, badssl.com 54-70 ms -> 14-16 ms.
+What remains is Conscrypt's own path building plus the revocation evaluation.
+
+Separately, the first verification in a process still pays 316-680 ms inside
+checkServerTrusted for Conscrypt's trust index build; that is platform code
+and is not addressed here.
+---
+ .../platformverifier/CertificateVerifier.kt   | 47 ++++++++++++++++++-
+ 1 file changed, 46 insertions(+), 1 deletion(-)
+
+diff --git a/android/rustls-platform-verifier/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt b/android/rustls-platform-verifier/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt
+index b8a6d99..c755ffc 100644
+--- a/android/rustls-platform-verifier/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt
++++ b/android/rustls-platform-verifier/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt
+@@ -19,6 +19,7 @@ import java.security.cert.CertificateFactory
+ import java.security.cert.CertificateNotYetValidException
+ import java.security.cert.CertificateParsingException
+ import java.security.cert.PKIXBuilderParameters
++import java.security.cert.TrustAnchor
+ import java.security.cert.PKIXRevocationChecker
+ import java.security.cert.X509Certificate
+ import java.util.Date
+@@ -168,6 +169,38 @@ internal object CertificateVerifier {
+     }
+ 
+     @get:Synchronized
++    /**
++     * The system trust anchors, extracted once per process.
++     *
++     * `PKIXBuilderParameters(KeyStore, …)` re-enumerates the keystore and
++     * re-parses every root certificate on each call. Against AndroidCAStore
++     * that reads the whole system CA directory from disk, measured at
++     * 46-310 ms per verification on an API 35 emulator — paid on every
++     * handshake that is not resumed. The JDK constructor performs exactly
++     * this extraction internally before delegating to the
++     * `Set<TrustAnchor>` constructor, so caching it changes no decision:
++     * path building, expiry and revocation still run per verification.
++     *
++     * `TrustAnchor` and the certificates it holds are immutable, so the set
++     * is safe to share. Trust cannot widen: the verdict comes from
++     * [systemTrustManager], which upstream already caches for the process.
++     */
++    @get:Synchronized
++    private val systemTrustAnchors: Lazy<Set<TrustAnchor>> = lazy {
++        val anchors = hashSetOf<TrustAnchor>()
++        systemKeystore?.let { keystore ->
++            for (alias in keystore.aliases()) {
++                if (keystore.isCertificateEntry(alias)) {
++                    val cert = keystore.getCertificate(alias)
++                    if (cert is X509Certificate) {
++                        anchors.add(TrustAnchor(cert, null))
++                    }
++                }
++            }
++        }
++        anchors
++    }
++
+     private val systemKeystore: KeyStore? = try {
+         KeyStore.getInstance("AndroidCAStore")
+     } catch (_: KeyStoreException) {
+@@ -323,7 +356,19 @@ internal object CertificateVerifier {
+                 return VerificationResult(StatusCode.Ok)
+             }
+ 
+-            val parameters = PKIXBuilderParameters(keystore, null)
++            // Only the system store is cached; a mock keystore (which the
++            // tests mutate) and an empty anchor set fall through to the
++            // original call, so behaviour there is unchanged.
++            val parameters = if (keystore != null && keystore === systemKeystore) {
++                val anchors = systemTrustAnchors.value
++                if (anchors.isNotEmpty()) {
++                    PKIXBuilderParameters(anchors, null)
++                } else {
++                    PKIXBuilderParameters(keystore, null)
++                }
++            } else {
++                PKIXBuilderParameters(keystore, null)
++            }
+ 
+             val validator = CertPathValidator.getInstance("PKIX")
+             val revocationChecker = validator.revocationChecker as PKIXRevocationChecker
