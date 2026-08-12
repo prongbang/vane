@@ -681,19 +681,41 @@ sit at parity.
 
 Open work, roughly by leverage:
 
-1. **Vane's fat p95 tail on Apple, and the h3 gap to Cronet on Android.**
-   Medians are at parity; tails are not (h1 to 246 ms, h3 to 180 ms against
-   URLSession's 27-45 ms band). Cause unmeasured — diagnose before fixing.
-   Prime suspect worth ruling out first: pooled-connection reuse-retry paying
-   an occasional full reconnect.
-2. **Per-handshake PKIX cost in the vendored Android verifier** (~350-400 ms).
+1. ~~Vane's fat p95 tail on Apple~~ — CLOSED 2026-08-12, and the cause was
+   not networking at all. The prime suspect was ruled out cold: pooled
+   reuse-retry fired **zero times in ~1,800 instrumented requests**, and the
+   tail did not reproduce in the Rust core or on the macOS host. It was
+   `Task.detached(priority: .utility)` around every blocking FFI call in
+   `VaneClient+Extension.swift`: utility sits in a low scheduler band, and on
+   the TCP path the tokio reactor thread inherits that QoS from its first
+   caller. A/B/A settled it — restoring `.utility` brought a 257 ms p95 back
+   within one run, and whole *rounds* went slow together, which no
+   per-request reconnect can produce. Fixed by routing all seven wrappers
+   plus `warmup` through one GCD queue at explicit `.default` QoS (not a
+   priority bump: a blocking call inside Swift's width-limited cooperative
+   pool is a starvation hazard that a bump would have left in place).
+   Measured: h3 p95 92-105 → 31-41 ms, max 195 → 45; h2 p95 47-52 → 35-39.
+   h1 improved (p95 257 → 36-75) but stays the noisiest cell, and one 240 ms
+   h2 outlier survived — the tail is much smaller, not gone. **Simulator
+   only; a real device has not confirmed it**, and on-device QoS throttling
+   may differ.
+
+   Lesson, again: the obvious mechanism was the wrong one, and only
+   per-request attribution could show that. The trace points used —
+   DNS, pool checkout outcome, connect+resumed, retry, QUIC stall — are worth
+   keeping as the observability hooks gate 5 already asks for.
+
+2. **The h3 median gap to Cronet on Android** (35.7 vs 25.8 ms, stable across
+   runs). The Apple tail work does not explain it — Kotlin dispatches on
+   `Dispatchers.IO` with no priority reduction — so this is still unmeasured.
+3. **Per-handshake PKIX cost in the vendored Android verifier** (~350-400 ms).
    `warmup()` hides it for the first request; every non-resumed handshake
    still pays it.
-3. **TCP session resumption does not honour the never-resume-pinned-hosts rule**
+4. **TCP session resumption does not honour the never-resume-pinned-hosts rule**
    the H3 path enforces — a pre-existing asymmetry surfaced by the warmup work.
-4. **Upstream PR for rustls-platform-verifier #221** — patch ready at
+5. **Upstream PR for rustls-platform-verifier #221** — patch ready at
    `docs/upstream/`, not opened; needs a fork and is an outward-facing action.
-5. ~~End-to-end session resumption~~ — CLOSED 2026-08-10 by the in-process
+6. ~~End-to-end session resumption~~ — CLOSED 2026-08-10 by the in-process
    HTTP/3 test server (`vane-rs/src/h3_offline.rs`, cfg(test) only): the
    server issues NewSessionTickets and records `is_resumed()` per
    connection; offline tests pin `[false, true]` for a non-pinned host and
@@ -702,10 +724,10 @@ Open work, roughly by leverage:
    Bonus offline coverage from the same server: `/get`+`/post` echo,
    cookie-set-on-302 readback, and a 3-hop redirect chain on the H3 wire —
    the env-gated live tests stay as-is.
-6. `PLAN.md`'s release checklist still has five unticked items that all need
+7. `PLAN.md`'s release checklist still has five unticked items that all need
    real hardware: AAR from a clean CI checkout, a clean Android app on a real
    device, Swift live H3 plus a clean app import, and TLS tests on devices.
-7. Emulator traps worth knowing before blaming a build: an emulator can wedge
+8. Emulator traps worth knowing before blaming a build: an emulator can wedge
    into a state where `adb devices` reports `device` while every shell command
    hangs (`adb kill-server` exposes it as `offline`), and Gradle will wait on
    that forever with no timeout.
