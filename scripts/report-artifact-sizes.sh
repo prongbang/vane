@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Reports Vane release artifact sizes and gates the size posture defined by
-# PLAN.md gate 11/12 and PERFORMANCE_PLAN.md "Phase 5b done" (CTO ruling,
+# PERFORMANCE_PLAN.md "Phase 5b done" (CTO ruling,
 # 2026-07-29):
 #   - Trigger (FAILS this script): uncompressed native payload (sum of a
 #     jniLibs ABI dir's .so files) on a device-shipping ABI -- arm64-v8a or
@@ -58,7 +58,7 @@ FAILED_ABIS=""
 
 emit "## Vane Artifact Sizes"
 emit ""
-emit "Size posture per PLAN.md gate 11/12 and PERFORMANCE_PLAN.md \"Phase 5b done\"."
+emit "Size posture per PERFORMANCE_PLAN.md \"Phase 5b done\"."
 emit ""
 
 # ---------------------------------------------------------------------------
@@ -89,7 +89,7 @@ if [[ -d "$jnilibs_dir" ]]; then
             pct=$((total * 100 / NATIVE_PAYLOAD_LIMIT_BYTES))
             if [[ "$total" -gt "$NATIVE_PAYLOAD_LIMIT_BYTES" ]]; then
                 emit "| \`$abi\` | $total | yes | 🚨 **FAIL: ${pct}% of budget, over the ${NATIVE_PAYLOAD_LIMIT_BYTES}B limit** |"
-                annotate error "Vane size gate: $abi native payload is $total bytes (${pct}% of budget), over the ${NATIVE_PAYLOAD_LIMIT_BYTES}-byte device-shipping-ABI limit (PLAN.md gate 11, PERFORMANCE_PLAN.md Phase 5b). Re-run per-feature attribution and demote the largest optional contributor."
+                annotate error "Vane size gate: $abi native payload is $total bytes (${pct}% of budget), over the ${NATIVE_PAYLOAD_LIMIT_BYTES}-byte device-shipping-ABI limit (PERFORMANCE_PLAN.md Phase 5b). Re-run per-feature attribution and demote the largest optional contributor."
                 GATE_FAILED=1
                 FAILED_ABIS="$FAILED_ABIS $abi"
             else

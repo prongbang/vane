@@ -3,9 +3,15 @@
 Drafted 2026-07-28 from a full audit of `vane-rs/src/lib.rs` (Rust core) and
 the Flutter/Kotlin/Swift binding layers; extended the same day with the
 rhttp-parity feature targets (full protocol ladder, DevTools, Dart ecosystem
-adapters). Line references are as of commit `718e880`. Companion to `PLAN.md`
-gate 14 (re-benchmark and size-optimize) and the "Required Feature Coverage"
-table.
+adapters). Line references are as of commit `718e880`.
+
+**This file is the plan of record.** It began as a companion to `PLAN.md`
+(the original production-readiness gates), but `PLAN.md` is gitignored and
+local-only — nobody outside the author's machine can read it, and it stopped
+being maintained. References to it below are kept where they record what a
+decision was made against at the time; treat them as historical citations, not
+as pointers to anything you can open. Anything from it that is still live has
+been moved here.
 
 ## Feature parity targets (rhttp checklist) — all closed 2026-08-03
 
@@ -34,9 +40,9 @@ of what was promised, rewritten to say what is true.
 
 The checklist above predates two weeks of rhttp releases and was always
 narrower than rhttp's real surface. Compared against the published package
-rather than the list, these gaps remain. Five of the seven are already named in
-`PLAN.md` under "still intentionally future work" — they are deferrals, not
-blind spots.
+rather than the list, these gaps remain. Five of the seven were recorded as
+deliberate deferrals long before this comparison — they are choices, not blind
+spots.
 
 | Gap | rhttp | Vane |
 |-----|-------|------|
@@ -818,9 +824,18 @@ Open work, roughly by leverage:
    Bonus offline coverage from the same server: `/get`+`/post` echo,
    cookie-set-on-302 readback, and a 3-hop redirect chain on the H3 wire —
    the env-gated live tests stay as-is.
-7. `PLAN.md`'s release checklist still has five unticked items that all need
-   real hardware: AAR from a clean CI checkout, a clean Android app on a real
-   device, Swift live H3 plus a clean app import, and TLS tests on devices.
+7. **Release checklist — five items left, all needing real hardware or CI.**
+   Moved here verbatim from the old `PLAN.md`, which nobody can read:
+   - [ ] Android release AAR builds from a clean checkout in CI
+   - [ ] Android clean app loads the AAR and performs an HTTP/3 request on a
+         real device
+   - [ ] Swift live HTTP/3-only GET passes against a confirmed HTTP/3 endpoint
+   - [ ] Swift clean app imports the package and performs an HTTP/3 request
+   - [ ] TLS tests pass on real devices
+
+   Everything else on that checklist is ticked. Note that the emulator and
+   simulator work in this document does **not** discharge these: the QoS tail
+   fix is simulator-only, and Android numbers came through the emulator's NAT.
 8. Emulator traps worth knowing before blaming a build: an emulator can wedge
    into a state where `adb devices` reports `device` while every shell command
    hangs (`adb kill-server` exposes it as `offline`), and Gradle will wait on
