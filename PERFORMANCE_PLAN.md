@@ -7,25 +7,57 @@ adapters). Line references are as of commit `718e880`. Companion to `PLAN.md`
 gate 14 (re-benchmark and size-optimize) and the "Required Feature Coverage"
 table.
 
-## Feature parity targets (rhttp checklist)
+## Feature parity targets (rhttp checklist) — all closed 2026-08-03
 
-| Target | Status today | Covered by |
-|--------|--------------|------------|
-| HTTP/1, HTTP/1.1, HTTP/2, HTTP/3 | HTTP/3 only | Phase 6 (TCP fallback backend); HTTP/1.0 accepted on responses only, forcing 1.0 requests stays unsupported |
-| TLS 1.2 and 1.3 | TLS 1.3 only (QUIC mandates 1.3) | Phase 6 — rustls on the TCP path does 1.2+1.3; HTTP/3 stays 1.3-only by spec |
-| Connection pooling | Implemented for H3, default ON since batch 1 (with reuse-retry: a pooled connection that fails before the first response byte is discarded and retried once on a fresh connection) | Done for H3; TCP pool comes free with the Phase 6 client |
-| Interceptors | Implemented (Swift/Kotlin/Flutter) | Done — no plan item |
-| Retry (optional) | Implemented | Done — no plan item |
-| Certificate pinning | Implemented for H3 | Phase 6 extends the same host-scoped pins to the TCP path via a custom rustls verifier |
-| Proxy support | MASQUE/CONNECT-UDP for H3 | Phase 6 adds HTTP CONNECT proxying for the TCP path from the same `proxy_url` |
-| Custom DNS resolution | Static overrides for H3 | Phase 6 maps the same overrides onto the TCP client; dynamic callbacks stay future work |
-| Cookies | Implemented (opt-in jar) | Phase 6 routes TCP responses through the same jar — one jar, both transports |
-| Strong type safety | Rust core + typed bindings | Done by construction — no plan item |
-| DevTools Network tab | Not integrated | Phase 7.1 (`package:http_profile`) |
-| `package:http` / dio / `dart:io` compat | Not implemented | Phase 7.2-7.4 |
+The original twelve-item checklist, drawn up 2026-07-28. Every row is done; the
+"status today" column it used to carry was left unrevised for two weeks while
+Phases 6 and 7 landed underneath it, and by 2026-08-12 it was claiming
+"HTTP/3 only" and "not implemented" about shipped features. Kept as the record
+of what was promised, rewritten to say what is true.
+
+| Target | State |
+|--------|-------|
+| HTTP/1, HTTP/1.1, HTTP/2, HTTP/3 | Done — `tcp-fallback` is a default feature; HTTP/1.0 responses are accepted, forcing 1.0 requests stays unsupported |
+| TLS 1.2 and 1.3 | Done — rustls on the TCP path; HTTP/3 is 1.3-only by spec |
+| Connection pooling | Done on both transports, default ON, with reuse-retry |
+| Interceptors | Done (Swift/Kotlin/Flutter) |
+| Retry (optional) | Done |
+| Certificate pinning | Done on both transports, host-scoped, fail-closed; pinned hosts never resume a TLS session on either transport |
+| Proxy support | Done — MASQUE/CONNECT-UDP over H3, HTTP CONNECT over TCP, from one `proxy_url` |
+| Custom DNS resolution | Static overrides done on both transports; **dynamic resolver callbacks still missing** |
+| Cookies | Done — one opt-in jar, both transports, public-suffix aware |
+| Strong type safety | Done by construction |
+| DevTools Network tab | Done (`package:http_profile`) |
+| `package:http` / dio / `dart:io` compat | `http` and dio done; `dart:io` deliberately gated on a consumer needing it |
+
+### Measured against rhttp 0.18.0 as it actually ships — 2026-08-12
+
+The checklist above predates two weeks of rhttp releases and was always
+narrower than rhttp's real surface. Compared against the published package
+rather than the list, these gaps remain. Five of the seven are already named in
+`PLAN.md` under "still intentionally future work" — they are deferrals, not
+blind spots.
+
+| Gap | rhttp | Vane |
+|-----|-------|------|
+| **Streaming response body** | `Stream<Uint8List> body` | buffered whole — the only *capability* gap; SSE and token-streaming APIs cannot be used at all |
+| Mutual TLS | `TlsSettings.clientCertificate` | none |
+| min/max TLS version | `minTlsVersion` | none |
+| Custom root certificates | `trustedRootCertificates` | none |
+| Dynamic DNS resolver | `DnsSettings.dynamic({resolver})` | static overrides only |
+| Multiple / conditional proxies | `ProxySettings.list([...])`, per-scheme | one `proxy_url` |
+| Configurable redirect cap | `RedirectSettings.limited(n)` | fixed at 10, on/off only |
+
+Running the other way, and worth stating because parity talk tends to be
+one-directional — Vane has, and rhttp does not (verified by source inspection,
+zero hits in its `lib/`): certificate pinning of any kind, MASQUE/CONNECT-UDP
+proxying, and native Kotlin and Swift APIs at all. rhttp is a Flutter package,
+so "parity" is only a meaningful claim about the Dart surface.
 
 Ground rule: every phase lands with a measurement. No change is "done" until
 the number that motivated it moves (or the change is rejected on evidence).
+Corollary learned the hard way, twice: a status column is a claim, and an
+unrevised one is a false claim.
 
 ## Phase 0 — Baseline measurement (do first)
 
