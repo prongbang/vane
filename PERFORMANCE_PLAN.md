@@ -674,10 +674,12 @@ self-relative measurement had in months:
   that state in the verifier is the actual fix and is still open.
 
 Standing results, all as measured, Vane's losses included: warm p50 is a parity
-band with the field on every platform; Cronet still beats Vane at HTTP/3 on
-Android (25.8 vs 35.7 ms, stable across runs); Vane's p95 tail is the fattest
-of its group on Apple platforms across all three protocols while its medians
-sit at parity.
+band with the field on every platform. Two qualifications, both measured:
+on Android HTTP/3 the 2026-08-12 `SO_RCVBUF` fix removed the packet drops
+that caused Cronet's *stable* 25.8-vs-35.7 ms win, but Cronet still comes
+out ahead in three runs of four (26.0-38.2 vs 25.0-32.9) with a better
+p95; and on Apple platforms the p95 tail, much smaller since the QoS fix,
+is still the group's worst on HTTP/1.1.
 
 Open work, roughly by leverage:
 
@@ -705,9 +707,41 @@ Open work, roughly by leverage:
    DNS, pool checkout outcome, connect+resumed, retry, QUIC stall — are worth
    keeping as the observability hooks gate 5 already asks for.
 
-2. **The h3 median gap to Cronet on Android** (35.7 vs 25.8 ms, stable across
-   runs). The Apple tail work does not explain it — Kotlin dispatches on
-   `Dispatchers.IO` with no priority reduction — so this is still unmeasured.
+2. ~~The h3 median gap to Cronet on Android~~ — CLOSED 2026-08-12, and again
+   the cause was one nobody predicted. Per-request attribution split every
+   request at the response-HEADERS event: TTFB was at parity or better (Vane
+   23.3 ms p50 vs Cronet 30.4 in the same window), and the whole gap sat in
+   body transfer (p50 8.5 vs 3.3 ms; p95 55 vs 6 ms — 3 of 30 requests
+   stalled ~50 ms mid-body). The kernel named the mechanism: `Udp:
+   RcvbufErrors` grew by exactly one drop per request under Vane's traffic
+   (+36 in 36 requests) and by zero under Cronet's. A pooled connection
+   keeps the server's congestion window hot, so each 126 KB response
+   arrives as one ~111-packet burst; at ~2 KB of kernel skb accounting per
+   1350-byte datagram that costs ~256 KB against Android's 224 KB default
+   socket buffer, the tail of the flight is dropped at the socket, and tail
+   loss is recovered by the server's probe timeout (~40-55 ms) rather than
+   fast retransmit — exactly the 76-98 ms maxima the matrix kept showing.
+   Fixed by requesting a 1 MB `SO_RCVBUF` (Chromium's number) on every QUIC
+   UDP socket, best-effort, kernel-clamped to `rmem_max`. After: zero
+   RcvbufErrors across ~216 Vane h3 requests, body p95 55 → 8-17 ms.
+
+   **The drop mechanism is gone; the ranking is not.** Independently
+   re-measured over four more runs after the fix landed: the kernel counter
+   held at exactly 0 across a full run (against ~36 before), but matrix p50
+   came out Vane 26.0-38.2 against Cronet 25.0-32.9 — parity in one run,
+   Cronet ahead in three, with Vane's p95 still the worse of the two.
+   Emulator weather is large enough to swing both clients by 10 ms, so the
+   honest reading is that the ~10 ms *stable* deficit became a smaller,
+   noisier one rather than closing. The residual below is the likeliest
+   remaining cause and is now the open item. Host macOS A/B: unchanged within noise
+   (body p50 2.9-3.6 → 3.1-5.1) — a real network paces the flight the
+   emulator's userspace NAT delivers in one burst, and macOS defaults are
+   larger; the knob cannot regress a clean path because `SO_RCVBUF` is a
+   limit, not an allocation. Handshake count while diagnosing: 1 per run,
+   35/36 requests reused the pooled connection. Residual, accepted: ~3 ms
+   body-side p50 vs Cronet on the emulator from one recv syscall per
+   datagram vs Cronet's GRO+recvmmsg batching — the upgrade path was
+   already noted on `read_quic_packets`.
 3. **Per-handshake PKIX cost in the vendored Android verifier** (~350-400 ms).
    `warmup()` hides it for the first request; every non-resumed handshake
    still pays it.
