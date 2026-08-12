@@ -742,11 +742,39 @@ Open work, roughly by leverage:
    body-side p50 vs Cronet on the emulator from one recv syscall per
    datagram vs Cronet's GRO+recvmmsg batching — the upgrade path was
    already noted on `read_quic_packets`.
-3. **Per-handshake PKIX cost in the vendored Android verifier** (~350-400 ms).
-   `warmup()` hides it for the first request; every non-resumed handshake
-   still pays it.
-4. **TCP session resumption does not honour the never-resume-pinned-hosts rule**
-   the H3 path enforces — a pre-existing asymmetry surfaced by the warmup work.
+3. ~~Per-handshake PKIX cost in the vendored Android verifier~~ — CLOSED
+   2026-08-12. Per-stage measurement split the ~350-400 ms in two:
+   Conscrypt's trust-index build inside `checkServerTrusted` costs
+   316-680 ms but only **once per process** (platform code, already absorbed
+   by `warmup()`), while `PKIXBuilderParameters(keystore, null)` cost
+   46-310 ms on **every** verification because its `KeyStore` constructor
+   re-enumerates AndroidCAStore and re-parses every root from disk. Fixed by
+   extracting the `Set<TrustAnchor>` once per process and building the
+   parameters from it — `PKIXParameters(KeyStore)` does exactly that
+   extraction internally, so it is equivalence, not a shortcut. **No verdict
+   is cached**: expiry, path building and revocation still run per
+   handshake, and the #221 CRL patch is byte-untouched. Warm-process
+   non-resumed verification 291-299 ms → 29-36 ms. What remains (~15-35 ms)
+   is Conscrypt path building plus revocation evaluation — platform-bound.
+4. ~~TCP resumption ignores the never-resume-pinned-hosts rule~~ — CLOSED
+   2026-08-12, and it was a **real pin bypass**, not just an asymmetry. A
+   resumed TLS 1.3 handshake carries no Certificate message, so rustls never
+   calls `verify_server_cert` where the pins live; it restores
+   `peer_certificates` from the cached chain and asserts verification
+   ("We *don't* reverify the certificate chain here", rustls
+   `client/tls13.rs`). `tls_config` never set `ClientConfig::resumption`, so
+   the default cache was live — and `warmup()` had just made it worse by
+   priming tickets deliberately, so a pinned host's *first real connection*
+   resumed and skipped its pin check. Demonstrated as [Full, Resumed] before
+   the fix. Closed with a `PinAwareSessionStore` that refuses to store or
+   offer for pinned hosts, per-host so unpinned hosts still resume, failing
+   closed on an unspellable name. Pin-change invalidation already worked
+   (the client is dropped wholesale) — verified rather than assumed, which
+   narrowed the hole to same-pin-set resumption.
+
+   Worth keeping: this was introduced by a performance change made the same
+   day. A speed fix that touches session caching is a security change to the
+   pinning path, whether or not it looks like one.
 5. **Upstream PR for rustls-platform-verifier #221** — patch ready at
    `docs/upstream/`, not opened; needs a fork and is an outward-facing action.
 6. ~~End-to-end session resumption~~ — CLOSED 2026-08-10 by the in-process
