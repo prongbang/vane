@@ -51,6 +51,15 @@ class _RecordingPlatform
   }
 
   @override
+  Future<VaneStreamingResponse> executeStreaming(
+    int handle,
+    Map<String, Object?> request,
+  ) {
+    // The dio adapter buffers every response today; nothing routes here.
+    throw UnimplementedError('streaming is not used by the dio adapter');
+  }
+
+  @override
   Future<void> setCertificatePins(
     int handle,
     String host,
