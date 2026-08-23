@@ -85,3 +85,58 @@ jobs:
       # available to download when this fails.
       - name: Report and gate artifact sizes
         run: ./scripts/report-artifact-sizes.sh "$GITHUB_STEP_SUMMARY"
+
+  live:
+    name: Live endpoint tests (advisory)
+    runs-on: macos-15
+    timeout-minutes: 30
+    # Advisory: pie.dev is a correctness endpoint with no SLA
+    # (PERFORMANCE_PLAN.md "Live test endpoints, settled 2026-07-29");
+    # third-party uptime must never block the release-artifact gate. The
+    # job still shows red inside the run when it really fails, and
+    # workflow_dispatch exists for a human rerun.
+    continue-on-error: true
+    env:
+      VANE_TEST_BASE_URL: https://pie.dev
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          # recursive: RustFramework.xcframework lives inside the VaneSwift
+          # submodule — without it `swift test` has no binary target.
+          submodules: recursive
+
+      # The xcframework is checked into git, so no Rust build is needed.
+      # Runs before the cargo build below so the Swift signal survives a
+      # Rust breakage. One in-step retry per suite absorbs a dropped
+      # packet (same repeat-on-transient posture the repo already uses),
+      # so a red step means "really failing", not "one lost datagram".
+      - name: Swift live tests
+        timeout-minutes: 10
+        working-directory: VaneSwift
+        run: swift test || swift test
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      # NO CARGO_TARGET_DIR here (the release job's env is job-level), so
+      # the same-commit host-built cdylib (byte parity with shipped
+      # artifacts is separately enforced by the staleness gate) lands at
+      # vane-rs/target/release/libvane.dylib — the exact path Dart's
+      # _libraryPath() probes.
+      - name: Build host dylib
+        working-directory: vane-rs
+        run: cargo build --release
+
+      # Un-skips the live streaming group AND the parked-upload abort
+      # test, whose discrimination (four 64 KiB chunks fill the buffer,
+      # the fifth parks) is coupled to the core's
+      # BODY_STREAM_BUFFER_BYTES = 256 KiB.
+      - name: Dart live streaming tests
+        timeout-minutes: 15
+        working-directory: vane_flutter
+        run: |
+          test -f ../vane-rs/target/release/libvane.dylib  # fail loud; never let the group skip silently
+          flutter test test/vane_flutter_ffi_test.dart || flutter test test/vane_flutter_ffi_test.dart

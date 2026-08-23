@@ -33,19 +33,28 @@ numbers came from exactly there.
 Related: the Apple p95 QoS fix is simulator-verified only, and on-device QoS
 throttling (Low Power Mode especially) may behave differently.
 
-## 3. Test coverage gaps, each named deliberately
+## 3. Test coverage gaps — closed 2026-08-23
 
-- **Abort-while-parked against the real core, in one Kotlin or Swift test.**
-  The wrapper half and the core half are each proven; nothing spans both. Dart
-  has such a test (`vane_flutter_ffi_test.dart`) — copy its shape.
-- **Kotlin's generated FFI call sites** are unreachable from JVM unit tests
-  (they cannot load the `.so`). Only `androidTest` can cover them.
-- **Live upload backpressure through the wrappers** — the core proves it; the
-  bindings only prove it against fakes.
-- No hermetic end-to-end Dart streaming test: the core is https-only and its
-  test-CA seam is `cfg(test)`-only, so a shipped dylib cannot trust a local
-  server. Live tests are gated on `VANE_TEST_BASE_URL`; if CI never sets it,
-  a port-protocol regression surfaces nowhere.
+- **Abort-while-parked against the real core** — done, in Swift:
+  `settlingTheRequestWhileAWriteIsParkedFreesTheRealRegistryStream`
+  (`VaneUploadStreamingTests.swift`), the Dart test's shape. Mutant-verified:
+  with the `onCancel` free removed it fails at the 60 s time limit (the runner
+  process still wedges after the recorded issue — that is the loud signal).
+- **Kotlin's generated FFI call sites** — covered by
+  `VaneBodyStreamInstrumentedTest` (androidTest): checksum gate, real-registry
+  create/write/finish/free, and abort-while-parked against the packaged `.so`.
+  Green on the API 35 emulator; a real-device run stays under item 2.
+- **Live upload backpressure through the wrappers** — covered in all three
+  bindings with a progress-gauge bound (source never > 640 KiB ahead of
+  `uploadSent`): Swift `streamedUploadBackpressureHoldsTheLiveSourceToTheTransportDrain`,
+  Dart `'a live streamed upload never runs ahead of the transport'`, Kotlin
+  `VaneUploadBackpressureLiveInstrumentedTest`. All gated on
+  `VANE_TEST_BASE_URL`.
+- Hermetic end-to-end Dart streaming remains impossible by design (https-only
+  core, `cfg(test)`-only CA seam — unchanged). The hole it left is closed
+  instead: `release.yml` now has an advisory `live` job that sets
+  `VANE_TEST_BASE_URL=https://pie.dev` and runs the Swift and Dart live
+  suites, so a port-protocol regression surfaces there.
 
 ## 4. Config knobs — build on demand, not speculatively
 
