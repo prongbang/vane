@@ -33,15 +33,15 @@ import 'package:vane_flutter/vane_flutter.dart';
 /// - Request headers are flattened: dio carries `Map<String, dynamic>` where
 ///   the core takes one string per name, so an `Iterable` value is joined with
 ///   `', '` and a null value is dropped.
-/// - Response headers are inflated the other way: the core returns one string
-///   per name — a name the server repeated arrives comma-joined (`'a, b'`),
-///   identically on both transports — so every entry becomes a one-element
-///   list. `set-cookie` is the exception — it arrives as a genuine N-element
-///   list, which is what dio's `cookie_manager` reads. Those values are raw: a
-///   cookie Vane's own jar refused still appears among them. Do NOT enable both
-///   Vane's jar and dio's `CookieManager` — dio's default jar is not
-///   public-suffix-aware, so it re-admits a `Domain=<public-suffix>` supercookie
-///   Vane rejected. Use one jar (see the package README).
+/// - Response headers are inflated the other way: the core returns ordered
+///   `(name, value)` pairs with duplicates preserved, and the multimap view
+///   hands dio a genuine N-element list per repeated name — `set-cookie`
+///   included, which is what dio's `cookie_manager` reads. Those cookie
+///   values are raw: a cookie Vane's own jar refused still appears among
+///   them. Do NOT enable both Vane's jar and dio's `CookieManager` — dio's
+///   default jar is not public-suffix-aware, so it re-admits a
+///   `Domain=<public-suffix>` supercookie Vane rejected. Use one jar (see the
+///   package README).
 /// - The FFI response carries no reason phrase and no redirect chain, so
 ///   [ResponseBody.statusMessage] is left null, `isRedirect` stays false,
 ///   `redirects` stays null and [RequestOptions.maxRedirects] is ignored.
@@ -148,18 +148,12 @@ class VaneDioAdapter implements HttpClientAdapter {
           // collects the stream.
           Stream<Uint8List>.value(response.body),
           response.statusCode,
-          headers: <String, List<String>>{
-            for (final header in response.headers.entries)
-              header.key: <String>[header.value],
-            // A genuine N-element list, which is what dio's cookie_manager
-            // reads. Copied, not aliased: dio's `Headers.add`/`remove` mutate
-            // the stored list in place, so handing over the response's own
-            // list would let an interceptor either throw on the fixed-length
-            // list the MethodChannel path builds, or silently rewrite the
-            // caller's `VaneResponse.setCookie`.
-            if (response.setCookie.isNotEmpty)
-              'set-cookie': List<String>.of(response.setCookie),
-          },
+          // The multimap fold preserves ALL duplicates in arrival order —
+          // set-cookie included, which is what dio's cookie_manager reads;
+          // a first-wins map here would silently drop repeats. Built fresh
+          // and growable per read, so dio's in-place `Headers.add`/`remove`
+          // cannot reach back into the response.
+          headers: response.headerMapList,
         )
         ..extra.addAll(<String, Object?>{
           // Omitted rather than guessed when the protocol is unknown, matching

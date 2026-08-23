@@ -22,10 +22,11 @@ class _RecordingPlatform
   Completer<void>? gate;
   VaneResponse response = VaneResponse(
     statusCode: 201,
-    headers: const <String, String>{
-      'content-type': 'text/plain',
-      'x-multi': 'a, b',
-    },
+    headers: const <(String, String)>[
+      ('content-type', 'text/plain'),
+      ('x-multi', 'a'),
+      ('x-multi', 'b'),
+    ],
     body: Uint8List.fromList(utf8.encode('hello')),
     isSuccess: true,
     url: 'https://example.com/thing',
@@ -143,7 +144,9 @@ void main() {
     expect(response.statusMessage, isNull, reason: 'no reason phrase over FFI');
     expect(response.isRedirect, isFalse);
     expect(response.headers['content-type'], <String>['text/plain']);
-    expect(response.headers['x-multi'], <String>['a, b']);
+    // BOTH values of the duplicated header reach dio, in arrival order — a
+    // first-wins fold here would silently drop what dio gets today.
+    expect(response.headers['x-multi'], <String>['a', 'b']);
     expect(response.headers, isNot(contains('set-cookie')));
     expect(
       response.extra,
@@ -158,11 +161,14 @@ void main() {
     () async {
       fake.response = VaneResponse(
         statusCode: 200,
-        headers: const <String, String>{'content-type': 'text/plain'},
+        headers: const <(String, String)>[
+          ('content-type', 'text/plain'),
+          ('set-cookie', 'a=1; Path=/'),
+          ('set-cookie', 'b=2; Path=/'),
+        ],
         body: Uint8List(0),
         isSuccess: true,
         url: 'https://example.com/thing',
-        setCookie: const <String>['a=1; Path=/', 'b=2; Path=/'],
         httpVersion: VaneHttpVersion.http2,
       );
 
@@ -180,11 +186,11 @@ void main() {
       ]);
       expect(body.extra[HttpClientAdapter.extraKeyHttpVersion], '2.0');
 
-      // The list handed to dio is a copy, not the response's own. dio's
-      // `Headers.add`/`remove` mutate the stored list in place, so aliasing
-      // would throw `UnsupportedError` here on the fixed-length list the
-      // MethodChannel path builds (and on this const fixture), and silently
-      // rewrite `VaneResponse.setCookie` on the growable FFI one.
+      // The multimap handed to dio is built fresh, not aliased into the
+      // response. dio's `Headers.add`/`remove` mutate the stored list in
+      // place, so aliasing would throw `UnsupportedError` here on a
+      // fixed-length list and silently rewrite the caller's response on a
+      // growable one.
       final headers = Headers.fromMap(body.headers);
       headers.add('set-cookie', 'c=3; Path=/');
       expect(headers['set-cookie'], hasLength(3));
@@ -454,7 +460,7 @@ void main() {
     () async {
       fake.response = VaneResponse(
         statusCode: 404,
-        headers: const <String, String>{},
+        headers: const <(String, String)>[],
         body: Uint8List(0),
         isSuccess: false,
         url: 'https://example.com/thing',
