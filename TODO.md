@@ -56,12 +56,49 @@ throttling (Low Power Mode especially) may behave differently.
   `VANE_TEST_BASE_URL=https://pie.dev` and runs the Swift and Dart live
   suites, so a port-protocol regression surfaces there.
 
-## 4. Config knobs — build on demand, not speculatively
+## 4. Config knobs — demanded 2026-08-23, three of four batches landed
 
-Everything rhttp has that Vane does not, and none of it is a capability:
-mutual TLS client certificates, min/max TLS version, custom root certificates,
-dynamic DNS resolver callbacks, multiple or per-scheme proxies, configurable
-redirect cap. Also open: remote IP and true list-shaped headers on the response.
+The plan of record is `docs/config-knobs-design.md` — one adversarially
+reviewed design covering all eight knobs, implemented in four batches. Each
+batch is one commit set spanning core + all bindings + rebuilt artifacts.
+
+- **Batch 1 landed (`4bd77a6`)** — the whole ABI v4→v5 (config members,
+  `remote_ip` slot, typed error-kind on create, DNS stub symbols; the number
+  never moves again), `maxRedirects` on both transports, TLS min/max
+  (enforced on TCP, validate-only on H3 — QUIC is 1.3-always).
+- **Batch 2 landed (`c4e43b1`)** — responses carry ordered `(name, value)`
+  pairs (duplicates preserved, set-cookie in position) plus `remoteIp` on
+  both transports; first-wins `headerMap` + multimap `headerMapList` views;
+  dio gets every duplicate.
+- **Batch 3 landed (`3b31a7f`)** — custom roots (OR-composite verifier on
+  TCP, in-memory boring ctx-builder on H3) and mTLS, behind a blocking
+  security gate that failed once and forced three real fixes (peer-spoofable
+  `vane-redirect-refused` header, a non-zeroizing key copy, undocumented
+  revocation asymmetry). Android composite tripwire green on the API 35
+  emulator.
+- **Batch 4 IN FLIGHT** — the dynamic DNS resolver callback (§1f/§3f/§5
+  Batch 4 of the design): core trait + setter that drains the H3 pool and
+  `tcp_client`, `spawn_blocking` bridge on the reqwest path, C-ABI
+  rendezvous filling the v5 stubs, Dart `NativeCallable.listener` plumbing,
+  Swift/Kotlin callback interfaces, and the four Dart tests the design calls
+  the only genuinely dangerous machinery (round-trip, timeout, late-reply
+  no-op, close-in-flight). If this batch is found uncommitted or
+  half-present, the design doc's §5 Batch 4 is the checklist to finish it;
+  the same-commit artifact rebuild rule applies as always.
+- Per-scheme/multi proxies resolved as documented-no-change in the design
+  (§1e); nothing further to build.
+
+Still open after batch 4: nothing in this item. The knobs' remaining risk
+lives in item 2 — every new instrumented test has run on the emulator only.
+
+## 4½. Blocked on the user: the superrepo cannot push
+
+Submodule pushes work, but `origin/main` of the superrepo rejects pushes
+because the stored PAT lacks the `workflow` scope and five outgoing commits
+touch `.github/workflows/`. Fix one of: add the `workflow` scope to the PAT
+(then `git credential-osxkeychain erase` the stale entry), or register
+`~/.ssh/id_ed25519.pub` with the GitHub account and switch the remote to
+SSH. Until then every superrepo commit accumulates locally.
 
 ## 5. Small and deferred, with reasons
 
