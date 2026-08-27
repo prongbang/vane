@@ -76,15 +76,22 @@ batch is one commit set spanning core + all bindings + rebuilt artifacts.
   `vane-redirect-refused` header, a non-zeroizing key copy, undocumented
   revocation asymmetry). Android composite tripwire green on the API 35
   emulator.
-- **Batch 4 IN FLIGHT** — the dynamic DNS resolver callback (§1f/§3f/§5
-  Batch 4 of the design): core trait + setter that drains the H3 pool and
-  `tcp_client`, `spawn_blocking` bridge on the reqwest path, C-ABI
-  rendezvous filling the v5 stubs, Dart `NativeCallable.listener` plumbing,
-  Swift/Kotlin callback interfaces, and the four Dart tests the design calls
-  the only genuinely dangerous machinery (round-trip, timeout, late-reply
-  no-op, close-in-flight). If this batch is found uncommitted or
-  half-present, the design doc's §5 Batch 4 is the checklist to finish it;
-  the same-commit artifact rebuild rule applies as always.
+- **Batch 4 landed (2026-08-27)** — the dynamic DNS resolver callback
+  (§1f/§3f/§5 Batch 4 of the design), whole: core trait + setter draining
+  the H3 pool, TLS session bank and `tcp_client`; `resolve_peer_addr` chain
+  (override → resolver → system, hard errors, both transports + warmup +
+  proxy); reqwest `ResolverAdapter` with the `spawn_blocking` bridge and a
+  concurrency regression test pinning it; the C-ABI rendezvous filling the
+  v5 stubs (10 s budget, tombstoned late replies, close-settled entries
+  kept alive for still-queued listeners — nothing frees a host buffer a
+  listener may read); Dart `NativeCallable.listener` plumbing +
+  `VaneClient.setDnsResolver`, with the four dangerous-machinery tests
+  green against the real dylib (round-trip, timeout, late-reply no-op,
+  close-in-flight); Swift/Kotlin get the UniFFI foreign-trait interface,
+  each with a recorded-resolver local-listener test (Swift hermetic; Kotlin
+  instrumented, green on the API 35 emulator — the listener must bind
+  127.0.0.1 explicitly, `getLoopbackAddress` gave ::1). All four artifact
+  sets rebuilt in the same commit.
 - Per-scheme/multi proxies resolved as documented-no-change in the design
   (§1e); nothing further to build.
 
