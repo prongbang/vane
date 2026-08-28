@@ -850,3 +850,38 @@ making it tolerate EOF would only have renamed the bug. hyper's own retry
 cannot cover it: it retries only `Retryable`, and ours arrives as
 `SendRequest` because the message was already committed. The fix was the
 reuse-retry rule the H3 path had had since batch 1.
+
+## H3 steady state: DNS moved to the dial — 2026-08-28
+
+The h3-vs-own-h2 steady-state gap (~1.5–2 ms p50 on all three platforms)
+was never attributed until the 2026-08-28 audit ran per-phase A/Bs: every
+h3 hop resolved the peer BEFORE the pool lookup (`lib.rs:2042`) and threw
+the answer away on a pooled hit — remote_ip reports the connection's own
+peer, and the session key needs only the URL port. The reqwest path never
+paid this: hyper resolves inside its connector, only on a fresh dial.
+
+Fix: the resolution now lives in the dial arm of the pool match. A/B on
+the host (dns_override short-circuit, three paired runs): pooled p50
+17.79→16.18, 17.35→16.26, 17.13→16.32 ms.
+
+Post-fix verification is a **paired** measure, not an absolute one, and
+the distinction is the whole story of the day. Ambient network drift of
+roughly +4 ms p50 hit every client during the verification runs — against
+the same-day pre-fix baseline, rhttp h2 went 16.99→21.41 and package:http
+19.09→22.58, neither of which this change can touch — so absolute p50s
+are not comparable across sessions and no absolute claim is made here.
+The drift-immune measure is the same-run delta `vane (ffi, h3)` minus
+`vane (ffi, h2)`, both taken in the same process in the same seconds:
+it flipped from **+1.13 ms** at the 2026-08-28 baseline (h3 slower, the
+gap this entry is about) to **−0.77, −1.05 and −1.93 ms** across three
+consecutive post-fix runs. h3 is now vane's fastest row, which no
+recorded matrix had ever shown. The third run is kept as
+`vane_benchmark/results/2026-08-28-host-dns-after-pool.json`. The pool
+test `a_pooled_h3_request_never_consults_the_resolver` pins the property
+offline, where no network can drift under it.
+
+Still open, priced and parked by the same audit: 0-RTT early data
+(~1 RTT on warm-cold reconnects — a security-gated change, not a perf
+patch), max_ack_delay 25 ms default (tail-only, needs observed loss),
+recvmmsg/GRO (Android large bodies only, refused once already). The
+remaining h3 budget after this fix is a few hundred microseconds.
