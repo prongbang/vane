@@ -28,7 +28,7 @@ succeed on networks that block UDP.
 
 | Platform | Package | Minimum target | Notes |
 | --- | --- | --- | --- |
-| Android | `VaneKotlin/library` | `minSdk 33` | Kotlin coroutine API with packaged `libvane.so` files |
+| Android | `VaneKotlin/library` | `minSdk 29` (Android 10) | Kotlin coroutine API with packaged `libvane.so` files |
 | iOS/macOS | `VaneSwift` | iOS 13, macOS 10.15 | Swift Package with `RustFramework.xcframework` |
 | Flutter | `vane_flutter` submodule | Flutter 3.3+, Dart 3.12+ | Dart FFI by default, MethodChannel fallback kept available |
 
