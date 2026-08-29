@@ -215,10 +215,14 @@ workflow edit: add the `workflow` scope to the PAT (then
 - **Upstream PR for rustls-platform-verifier** — two applicable patches sit in
   `docs/upstream/`, verified against upstream `main`. The user has said not to
   touch other repos; they stay as a record of what Vane patches locally.
-- Per-handshake H3 inactivity timeout (today the whole upload must fit the
-  request deadline on TCP, because reqwest wraps body-send and headers in one).
-- `stream_shutdown` for the un-FINed request stream, on both paths.
-- Buffered H3 uploads have never sent `content-length`; streamed ones do.
+- ~~Per-handshake H3 inactivity timeout~~, ~~`stream_shutdown` for the
+  un-FINed request stream~~, ~~buffered H3 uploads never sent
+  `content-length`~~ — all three landed 2026-08-30, core + all three bindings
+  + rebuilt artifacts in one change-set. The timeout became an opt-in knob
+  (`inactivity_timeout_seconds`, ABI v6) rather than a change of meaning for
+  `timeout_seconds`: it replaces the absolute deadline rather than layering
+  on it, so with it set nothing caps a request's total duration. Unset —
+  every existing caller — behaviour is unchanged.
 
 ## Before you touch the build
 
@@ -255,6 +259,15 @@ workflow edit: add the `workflow` scope to the PAT (then
   and feed the live upload test with
   `-Pandroid.testInstrumentationRunnerArguments.VANE_TEST_BASE_URL=https://pie.dev`
   (a runner argument — the env var never crosses to the device).
+- **`flutter test` picks a different dylib than every build writes.** The Dart
+  tests look for `vane-rs/target/release/libvane.dylib` — the crate-local
+  target dir — while `release-build.sh` and the commands above all build into
+  `CARGO_TARGET_DIR=$HOME/.cargo-target`. A stale copy in the crate-local dir
+  is therefore preferred over the one you just built, and since it is
+  gitignored nothing flags it. It surfaces as the ABI guard firing
+  (`native libvane ABI v5, this package expects v6`), which reads like a bug
+  and is the guard working. Pass
+  `VANE_TEST_LIBRARY=$HOME/.cargo-target/release/libvane.dylib`.
 - Emulator trap: `adb devices` reporting `device` while every shell hangs means
   it is wedged — `adb kill-server` exposes it as `offline`, and Gradle waits
   forever. Use timeouts.
