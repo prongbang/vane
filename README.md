@@ -806,3 +806,19 @@ VANE_TEST_BASE_URL=https://<http3-enabled-host> swift test --package-path VaneSw
   only `https` targets, caps the chain at 10 hops, refuses cross-origin body
   replay, and caps intermediate 3xx bodies at 64 KiB; a refused hop reaches the
   caller with a `vane-redirect-refused` header rather than being followed.
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
+[MIT license](LICENSE-MIT) at your option
+(`SPDX-License-Identifier: MIT OR Apache-2.0`).
+
+Vane ships prebuilt binaries that statically contain BoringSSL, quiche,
+rustls and others; their notices are in
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and must travel with any
+redistribution of those binaries.
+
+Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in this work by you, as defined in the Apache-2.0
+license, shall be dual licensed as above, without any additional terms or
+conditions.
