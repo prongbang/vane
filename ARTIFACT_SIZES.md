@@ -1,5 +1,9 @@
 # Vane Artifact Sizes
 
+**Current numbers: see "Re-measurement 2026-08-29" below.** The pass
+described next is 2026-07-29, retained for the per-feature attribution and
+the CTO verdicts that the newer pass did not re-run.
+
 Re-measured on 2026-07-29 (PERFORMANCE_PLAN.md Phase 5) after batch 3
 reintroduced the `reqwest` TCP fallback backend (HTTP/1.1 + HTTP/2 + TLS
 1.2/1.3, feature `tcp-fallback`) and added the `psl` public-suffix cookie
@@ -19,6 +23,105 @@ pinning, the `psl`-backed cookie `Domain` guard, connection pooling, retry
 policy, Swift/Kotlin request helper work, the opt-in in-memory cookie jar,
 configurable request/response body limits, and the Swift static XCFramework
 migration.
+
+## Re-measurement 2026-08-29 (current numbers)
+
+Measured on the `main` tip `c6ddae5` (vane-rs at `e40feeb`), `rustc 1.93.1`,
+default features unchanged
+(`default = ["spki-pinning", "tcp-fallback", "psl"]`). This section is the
+current state; every section below it is the 2026-07-29 pass, kept because it
+carries the per-feature attribution and the CTO verdicts, which were **not**
+re-run this pass.
+
+Two structural changes landed between the passes and explain most of the
+movement — neither is a code-size regression or win in itself:
+
+- **32-bit x86 is no longer built.** `vane-rs/Makefile build_so` drops it
+  (it was emulator-only). That removes a whole 5,755,820-byte ABI slice from
+  the AAR.
+- **`libquiche-<hash>.so` no longer exists as a separate file.** `quiche`'s
+  build-script output is now linked into `libvane.so`; each ABI directory
+  holds exactly one `.so`. Per-ABI payload totals below are therefore
+  directly comparable to the old `libvane.so + libquiche-*.so` sums, but the
+  per-file rows are not.
+
+### Android native payload per ABI
+
+Sum of every `.so` in the ABI's jniLibs directory — what one device
+downloads for its ABI. Gate (PERFORMANCE_PLAN.md "Phase 5b done"):
+device-shipping ABIs over 8,000,000 bytes fail.
+
+| ABI | 2026-08-29 | 2026-07-29 | Delta | Gate |
+|-----|-----------:|-----------:|------:|------|
+| arm64-v8a | 5,333,520 | 5,452,024 | -118,504 (-2.2%) | ok, 66% of budget |
+| armeabi-v7a | 3,350,000 | 3,192,400 | +157,600 (+4.9%) | ok, 41% of budget |
+| x86_64 | 6,178,680 | 6,265,800 | -87,120 (-1.4%) | not gated (emulator-only) |
+| x86 | *not built* | 5,755,820 | removed | n/a |
+
+`scripts/report-artifact-sizes.sh` reports PASS. Note its calibration
+comment cites 5,451,992 / 3,192,376 for the 2026-07-29 arm64-v8a and
+armeabi-v7a payloads, 32 and 24 bytes below what this file's own per-file
+table sums to; the discrepancy is inside the noise of either number and was
+not chased.
+
+### Android AAR
+
+Rebuilt this pass via
+`ANDROID_HOME=$HOME/Library/Android/sdk ./gradlew :library:assembleRelease`
+against the committed jniLibs. The previously committed build output was
+stale (dated 2026-08-11 against jniLibs from 2026-08-28) — its 7,253,520
+bytes are **not** a valid current number.
+
+| Artifact | 2026-08-29 | 2026-07-29 | Delta |
+|----------|-----------:|-----------:|------:|
+| `library-release.aar` | 7,514,739 bytes | 9,953,850 bytes | -2,439,111 (-24.5%) |
+
+7,514,739 bytes = 7.17 MiB = 7.51 MB (decimal). This clears the CTO's
+"~10 MB" revisit trigger that the July pass was sitting on, but the cause is
+the dropped x86 slice, not a payload reduction on any shipping ABI — arm64-v8a
+moved by -2.2%.
+
+### Swift XCFramework slices (`.a`, unlinked static archive)
+
+Same caveat as the 2026-07-29 table below: this is not app-size impact.
+
+| Slice | 2026-08-29 | 2026-07-29 | Delta |
+|-------|-----------:|-----------:|------:|
+| macOS arm64/x86_64, full | 96,555,776 | 94,974,440 | +1,581,336 (+1.7%) |
+| iOS simulator, full | 100,962,688 | 99,397,008 | +1,565,680 (+1.6%) |
+| iOS arm64, full | 50,556,024 | 49,800,520 | +755,504 (+1.5%) |
+| macOS arm64/x86_64, small | 41,803,248 | 40,944,064 | +859,184 (+2.1%) |
+| iOS simulator, small | 47,232,568 | 46,386,056 | +846,512 (+1.8%) |
+| iOS arm64, small | 23,475,264 | 23,081,384 | +393,880 (+1.7%) |
+
+Feature sets verified rather than assumed, by symbol strings in the packaged
+archives: the full `ios-arm64` slice carries `hyper` (1,087 hits) and
+`rustls` (1,812); the small slice carries `hyper` 0.
+
+### Linked cdylib proxy, `aarch64-apple-ios`
+
+| Profile | Linked cdylib | Feature check |
+|---------|--------------:|---------------|
+| full (default) | 4,172,900 bytes (3.98 MiB) | `hyper` present |
+| small (`--no-default-features`) | 1,903,632 bytes (1.82 MiB) | `hyper` absent |
+
+The full number tracks the 2026-07-29 measured app-binary delta of
++4,486,504 bytes closely, which is the point of the proxy. It required an
+explicit rebuild: **`scripts/report-artifact-sizes.sh` initially reported
+1,903,632 for this triple** — the exact trap its own Caveat paragraph warns
+about, a target dir left holding a `--no-default-features` build while the
+packaged `.a` was the full profile. Rebuilt with
+`IPHONEOS_DEPLOYMENT_TARGET=13.0 cargo build --release --target aarch64-apple-ios`
+(the deployment target is required; without it the link fails outright on
+newer-iOS-version object files). Only this triple was rebuilt, so any other
+triple's cdylib reading from that script in this pass is the small profile,
+not the default one.
+
+### Not re-measured this pass
+
+The iOS app-archive measurement (`.app`/`.ipa` deltas), the per-feature
+attribution, and the Phase 5/5a verdicts all still carry their 2026-07-29
+numbers. Nothing here contradicts them; they were simply out of scope.
 
 ## Swift XCFramework
 
