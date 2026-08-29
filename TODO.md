@@ -1,7 +1,9 @@
 # What's left
 
-Written 2026-08-15 as a handoff, item 2 and item 4½ updated 2026-08-29 after
-the first real-hardware run. `PERFORMANCE_PLAN.md` is the plan of record and
+Written 2026-08-15 as a handoff. Item 2 was rewritten 2026-08-29 after the
+Android half finally ran on real hardware; items 3, 4 and 4½ were corrected in
+the same pass, where they had been asserting things that had stopped being
+true. `PERFORMANCE_PLAN.md` is the plan of record and
 carries the history and the reasoning; this file is only the open items and the
 things you need to know before touching the build. `PLAN.md` is gitignored,
 unmaintained, and cannot be read by anyone else — ignore it.
@@ -20,15 +22,19 @@ Central, an SPM tag), and a decision about whether the XCFramework ships in-repo
 or as a release asset. **Publishing is outward-facing — do not publish anything
 without the user asking for that specific act.**
 
-## 2. Release checklist — the iOS half is discharged, the Android half is not
+## 2. Release checklist — four of five discharged on real hardware
 
-Emulator and simulator work does **not** discharge these. Run on real hardware
-2026-08-29 against an iPhone 15 (iOS 26.2.1) and a PPA-LX2 (Android 10).
+Emulator and simulator work does **not** discharge these. First real-hardware
+run 2026-08-29 against an iPhone 15 (iOS 26.2.1) and a PPA-LX2 (Android 10);
+the Android half was blocked that day and ran later the same day, once
+`minSdk` dropped to 29 (`dab5e88`) and the device stopped being unusable.
 
 - [~] **Android release AAR builds from a clean checkout in CI.** The
       clean-checkout half is **done**: `git clone --recurse-submodules` from
       GitHub, then `:library:assembleRelease`, produces 7,514,743 bytes —
-      byte-identical to the working tree. The *CI* half is one commit away.
+      byte-identical to the working tree. (That number predates `dab5e88`,
+      which added `androidx.annotation` to the AAR; re-baseline it on the next
+      clean-checkout run.) The *CI* half is the last open box in this item.
       `Release Verification` had failed on every run in its history, at
       `Verify release build`, for three independent reasons found and fixed
       2026-08-29:
@@ -36,17 +42,30 @@ Emulator and simulator work does **not** discharge these. Run on real hardware
       2. `flutter analyze` fails on two stale platform mocks (fixed, pushed).
       3. **The release job never installed Flutter at all**, so
          `scripts/release-build.sh` exited 127 after ~26 minutes. Fixed in
-         `dcf78d7` — which **cannot be pushed**, see item 4½.
-      The script now runs to "Release build completed." locally, end to end.
-- [ ] **Android clean app loads the AAR and does an HTTP/3 request on a real
-      device.** Blocked, not attempted: `minSdk = 33`
-      (`VaneKotlin/library/build.gradle.kts`) and the only real Android device
-      here is API 29. Needs either an API 33+ device or a decision to lower
-      minSdk — which is a trust-store and TLS-API question, not just a number.
+         `dcf78d7`, which **is now on `origin/main`** — item 4½'s description
+         of it as unpushable is stale.
+      The run on `1b5a98d` is the first in the workflow's history to get past
+      `Set up Flutter` and into `Verify release build` — the step that used to
+      die at 127. It was still running when this was written; **the box stays
+      open until a run reports success.**
+- [x] **Android clean app loads the AAR and does an HTTP/3 request on a real
+      device.** Done on the PPA-LX2 (Android 10, API 29, arm64-v8a). A
+      throwaway app that consumes only `library-release.aar` as a `files()`
+      dependency — no project module wiring, and every transitive dependency
+      named by hand, which is what an external adopter actually faces. It
+      declares neither `INTERNET` nor `VaneInitProvider`; both arrive by
+      manifest merging from the AAR, and the merged manifest was checked
+      rather than assumed. Two `http3Only()` GETs returned
+      `status=200 version=HTTP3` (cloudflare-quic.com 125,959 B, pie.dev 418
+      B). Shown to discriminate: the same config against `example.com`, which
+      advertises no h3, fails at `QUIC connection closed before handshake
+      completed` instead of falling back to TCP.
 - [x] **Swift live HTTP/3-only GET against a confirmed HTTP/3 endpoint.**
       Passes on the device, and on the host against `https://pie.dev`
       (`alt-svc: h3=":443"` confirmed). Shown to discriminate: pointed at a
-      host with no h3 it fails at the QUIC handshake.
+      host with no h3 it fails at the QUIC handshake. Re-run 2026-08-29 in the
+      clean-app harness below — 200/HTTP3 against both cloudflare-quic.com and
+      pie.dev, with the no-h3 control still rejected.
 - [x] **Swift clean app imports the package and does an HTTP/3 request.** A
       throwaway SwiftUI app consuming VaneSwift over SPM, on the device. This
       is the check that earned its keep twice: it caught
@@ -54,15 +73,24 @@ Emulator and simulator work does **not** discharge these. Run on real hardware
       consumer could configure anything at all), and then that **HTTP/3 had
       never once worked on a physical iPhone** — the platform-roots lookup was
       filesystem-based and no iOS sandbox has those paths. Both fixed.
-- [~] **TLS tests pass on real devices.** iOS: 10/10 on the device, both
+- [x] **TLS tests pass on real devices.** iOS: 11/11 on the iPhone 15, both
       transports — expired, self-signed and wrong-host chains rejected by the
       real Apple trust store, a wrong pin rejected as a pin mismatch on each
-      transport, and a correct pin accepted. Android: blocked with the item
-      above.
+      transport, and a correct pin accepted on each. Android: 20/20 on the
+      PPA-LX2 for the whole non-benchmark instrumented suite, including the
+      five cases added in `68b0dc9` to close a coverage asymmetry the earlier
+      tick would have hidden — Android had no pinning test at all, so the box
+      did not mean the same thing on the two platforms.
+
+      One gap, stated rather than papered over: **correct-pin-accepted over
+      HTTP/3 is not covered on Android.** The local test server speaks TLS
+      over TCP, not QUIC, and the only alternative is pinning a live rotating
+      leaf — a test that passes today and fails on renewal. The iOS device run
+      covers that case and the pin code path underneath is shared Rust.
 
 Related: the Apple p95 QoS fix is still simulator-verified only, and on-device
 QoS throttling (Low Power Mode especially) may behave differently. Nothing in
-the 2026-08-29 run touched it.
+the 2026-08-29 runs touched it.
 
 **The lesson worth keeping.** Every iOS number in this repo before 2026-08-29
 came from the simulator, and the simulator runs on a Mac filesystem — so
@@ -71,6 +99,15 @@ A whole transport was broken on real hardware for the entire life of the
 project, behind a green test suite. "Simulator does not discharge this" was
 already written here; it turned out to be the single most load-bearing
 sentence in the file.
+
+**The second lesson, from the Android half.** That half sat blocked for weeks
+behind `minSdk = 33`, recorded as a trust-store and TLS-API question. It was
+neither: the number was an Android Studio template default, the shipped
+`libvane.so` had always targeted API 21, and the one real blocker was UniFFI
+generating an unguarded `java.lang.ref.Cleaner` call. Building at 29 and
+reading the three lint errors took minutes and answered a question that
+reasoning about it had not. A blocker nobody has tried to reproduce is a
+guess.
 
 ## 3. Test coverage gaps — closed 2026-08-23
 
@@ -82,7 +119,8 @@ sentence in the file.
 - **Kotlin's generated FFI call sites** — covered by
   `VaneBodyStreamInstrumentedTest` (androidTest): checksum gate, real-registry
   create/write/finish/free, and abort-while-parked against the packaged `.so`.
-  Green on the API 35 emulator; a real-device run stays under item 2.
+  Green on the API 35 emulator and, since 2026-08-29, on a real PPA-LX2
+  (Android 10, API 29).
 - **Live upload backpressure through the wrappers** — covered in all three
   bindings with a progress-gauge bound (source never > 640 KiB ahead of
   `uploadSent`): Swift `streamedUploadBackpressureHoldsTheLiveSourceToTheTransportDrain`,
@@ -134,31 +172,24 @@ batch is one commit set spanning core + all bindings + rebuilt artifacts.
 - Per-scheme/multi proxies resolved as documented-no-change in the design
   (§1e); nothing further to build.
 
-Still open after batch 4: nothing in this item. The knobs' remaining risk
-lives in item 2 — every new instrumented test has run on the emulator only.
+Still open after batch 4: nothing in this item. The emulator-only caveat that
+used to sit here is discharged: the whole non-benchmark instrumented suite,
+batch 3's composite tripwire and batch 4's recorded-resolver test included,
+ran 20/20 on a real PPA-LX2 on 2026-08-29.
 
-## 4½. Blocked on the user: the PAT still cannot touch workflows
+## 4½. Was blocked on the user — the workflow commit did land
 
-Re-tested 2026-08-29 by actually pushing, not by reasoning about it.
+Re-checked 2026-08-29 against `origin`, not against this file's memory of it.
+`dcf78d7` **is on `origin/main`**; `git branch -r --contains dcf78d7` names it
+and the Flutter setup step is present in `origin/main:.github/workflows/release.yml`.
+Whatever the PAT could not do earlier, this commit is no longer waiting on it.
 
-Everything that does **not** touch `.github/workflows/` pushes fine — the
-superrepo and all four submodules are up to date on `origin/main`. That is why
-the original description here was misleading: it read as "the superrepo cannot
-push", when the rejection is per-commit and only fires on workflow files.
+That leaves nothing blocked on the user here. The only thing still owed is a
+`Release Verification` run that actually reports success — tracked in item 2,
+not here.
 
-One commit is blocked, and it is the one that makes CI green:
-
-```
-! [remote rejected] main -> main (refusing to allow a Personal Access Token
-  to create or update workflow `.github/workflows/release.yml` without
-  `workflow` scope)
-```
-
-`dcf78d7` adds the missing Flutter setup step to the release job. Until it
-lands, `Release Verification` keeps failing at exit 127 and item 2's CI box
-cannot be ticked.
-
-Fix one of: add the `workflow` scope to the PAT (then
+Keep the remedy written down in case the rejection returns on the next
+workflow edit: add the `workflow` scope to the PAT (then
 `git credential-osxkeychain erase` the stale entry), or register
 `~/.ssh/id_ed25519.pub` with the GitHub account and switch the remote to SSH.
 
@@ -200,6 +231,15 @@ Fix one of: add the `workflow` scope to the PAT (then
   changes do not touch it — UniFFI has its own checksum guard.
 - `VaneSwift/Sources/VaneSwift/VaneClient.swift` carries a hand-patch (a
   BOM-preserving UTF-8 decoder) that regeneration silently reverts. Re-apply it.
+- **Two Android devices are usually attached** — the PPA-LX2 (`CNXNU21106102415`,
+  Android 10 / API 29 / arm64-v8a) and an emulator. Gradle runs
+  `connectedAndroidTest` on *both* unless you pass
+  `ANDROID_SERIAL=CNXNU21106102415`, and a green run on the wrong one is
+  exactly the kind of claim item 2 exists to prevent. Skip the benchmarks with
+  `-Pandroid.testInstrumentationRunnerArguments.notPackage=com.inteniquetic.vanekotlin.benchmark`
+  and feed the live upload test with
+  `-Pandroid.testInstrumentationRunnerArguments.VANE_TEST_BASE_URL=https://pie.dev`
+  (a runner argument — the env var never crosses to the device).
 - Emulator trap: `adb devices` reporting `device` while every shell hangs means
   it is wedged — `adb kill-server` exposes it as `offline`, and Gradle waits
   forever. Use timeouts.
