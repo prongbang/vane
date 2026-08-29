@@ -73,8 +73,24 @@ jobs:
       - name: Verify release build
         run: ./scripts/release-build.sh
 
+      # The bare `git diff --exit-code` reported only "exit code 1", and the
+      # job log endpoint needs admin rights, so a failure here was undiagnosable
+      # from outside. Name the files and the byte deltas before failing.
       - name: Verify generated artifacts are current
-        run: git diff --exit-code -- vane-rs VaneKotlin VaneSwift
+        run: |
+          if git diff --quiet -- vane-rs VaneKotlin VaneSwift; then
+            echo "Generated artifacts match the committed tree."
+            exit 0
+          fi
+          echo "::error::Rebuilt artifacts differ from the committed tree."
+          echo "### Artifact drift" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          git diff --stat -- vane-rs VaneKotlin VaneSwift | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "--- toolchain that produced the rebuild ---" | tee -a "$GITHUB_STEP_SUMMARY"
+          { rustc -vV; echo; xcodebuild -version; echo; xcrun --find libtool; } \
+            2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       - name: Upload Android AAR
         uses: actions/upload-artifact@v4
