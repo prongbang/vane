@@ -59,6 +59,17 @@ jobs:
           cargo install cargo-swift --version "^0.11" --locked
           cargo install --path vane-rs/vane-bindgen --locked
 
+      # scripts/release-build.sh runs `flutter analyze`, `flutter test` and
+      # the example app's apk/ios builds whenever vane_flutter/ is present --
+      # which it always is, it is a submodule. Without Flutter on PATH the
+      # script died with exit 127 after ~26 minutes of Rust, Kotlin and Swift
+      # work, which is how this job had failed on every run in its history.
+      # Same action and channel as the live job below.
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
       - name: Verify release build
         run: ./scripts/release-build.sh
 
