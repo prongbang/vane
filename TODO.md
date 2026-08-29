@@ -25,11 +25,19 @@ without the user asking for that specific act.**
 Emulator and simulator work does **not** discharge these. Run on real hardware
 2026-08-29 against an iPhone 15 (iOS 26.2.1) and a PPA-LX2 (Android 10).
 
-- [ ] **Android release AAR builds from a clean checkout in CI.** The build
-      half is proven: a fresh clone with submodules produces a
-      byte-size-identical AAR (7,514,739). The *CI* half is not, and cannot be
-      until the commits below are pushed — CI cannot check out a tree whose
-      submodule commits only exist locally. See item 4½.
+- [~] **Android release AAR builds from a clean checkout in CI.** The
+      clean-checkout half is **done**: `git clone --recurse-submodules` from
+      GitHub, then `:library:assembleRelease`, produces 7,514,743 bytes —
+      byte-identical to the working tree. The *CI* half is one commit away.
+      `Release Verification` had failed on every run in its history, at
+      `Verify release build`, for three independent reasons found and fixed
+      2026-08-29:
+      1. clippy 1.93 denies `vane_ffi_client_create` (fixed, pushed).
+      2. `flutter analyze` fails on two stale platform mocks (fixed, pushed).
+      3. **The release job never installed Flutter at all**, so
+         `scripts/release-build.sh` exited 127 after ~26 minutes. Fixed in
+         `dcf78d7` — which **cannot be pushed**, see item 4½.
+      The script now runs to "Release build completed." locally, end to end.
 - [ ] **Android clean app loads the AAR and does an HTTP/3 request on a real
       device.** Blocked, not attempted: `minSdk = 33`
       (`VaneKotlin/library/build.gradle.kts`) and the only real Android device
@@ -129,27 +137,28 @@ batch is one commit set spanning core + all bindings + rebuilt artifacts.
 Still open after batch 4: nothing in this item. The knobs' remaining risk
 lives in item 2 — every new instrumented test has run on the emulator only.
 
-## 4½. Blocked on the user: nothing is pushed
+## 4½. Blocked on the user: the PAT still cannot touch workflows
 
-Re-checked 2026-08-29 after `git fetch`. The five commits touching
-`.github/workflows/` that triggered the original PAT-scope rejection are no
-longer outgoing, so that specific blocker may already be gone — **untested**,
-because pushing is the user's call, not something to try and find out.
+Re-tested 2026-08-29 by actually pushing, not by reasoning about it.
 
-What is outgoing now, all from 2026-08-29 and none of it touching
-`.github/workflows/`:
+Everything that does **not** touch `.github/workflows/` pushes fine — the
+superrepo and all four submodules are up to date on `origin/main`. That is why
+the original description here was misleading: it read as "the superrepo cannot
+push", when the rejection is per-commit and only fires on workflow files.
 
-| Repo | Unpushed |
-|---|---:|
-| superrepo | 4 |
-| VaneSwift | 3 |
-| vane-rs | 2 |
-| VaneKotlin | 2 |
-| vane_flutter | 1 |
+One commit is blocked, and it is the one that makes CI green:
 
-This is what blocks the CI half of item 2: a clean checkout from GitHub fails
-immediately with `not our ref` on the submodule commits. If the PAT still
-rejects the push, fix one of: add the `workflow` scope (then
+```
+! [remote rejected] main -> main (refusing to allow a Personal Access Token
+  to create or update workflow `.github/workflows/release.yml` without
+  `workflow` scope)
+```
+
+`dcf78d7` adds the missing Flutter setup step to the release job. Until it
+lands, `Release Verification` keeps failing at exit 127 and item 2's CI box
+cannot be ticked.
+
+Fix one of: add the `workflow` scope to the PAT (then
 `git credential-osxkeychain erase` the stale entry), or register
 `~/.ssh/id_ed25519.pub` with the GitHub account and switch the remote to SSH.
 
