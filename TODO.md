@@ -44,10 +44,25 @@ the Android half was blocked that day and ran later the same day, once
          `scripts/release-build.sh` exited 127 after ~26 minutes. Fixed in
          `dcf78d7`, which **is now on `origin/main`** — item 4½'s description
          of it as unpushable is stale.
-      The run on `1b5a98d` is the first in the workflow's history to get past
-      `Set up Flutter` and into `Verify release build` — the step that used to
-      die at 127. It was still running when this was written; **the box stays
-      open until a run reports success.**
+      The run on `1b5a98d` was the first in the workflow's history to get past
+      `Set up Flutter`, and **`Verify release build` passed** on it, in 40
+      minutes. Two more failures followed, both now fixed:
+      4. `Verify generated artifacts are current` — reached for the first time
+         ever, and failed. Not stale artifacts: `make build_swift` was not
+         reproducible, so `git diff --exit-code` could never pass. `libtool`
+         stamped every ar member header with the current time, and a trailing
+         `xcrun strip -S -x` re-stamped `__.SYMDEF` after it. Object code was
+         identical throughout — 912 members, not one differing byte. Fixed in
+         `1cf699a`: strip per object, `libtool -D` last. Android was already
+         reproducible and needed nothing.
+      5. `Check out repository` — the `62d033b` run died before running
+         anything, because two submodule pointers on `main` referenced commits
+         that existed only locally. Pushed; a fresh
+         `git clone --recurse-submodules` from GitHub now resolves all four.
+      **The box stays open until a run reports success.** Note that CI's Xcode
+      and rustc are not pinned to any developer's, so cross-machine byte
+      equality of the archives is still unproven — reproducibility on one
+      machine was necessary, not obviously sufficient.
 - [x] **Android clean app loads the AAR and does an HTTP/3 request on a real
       device.** Done on the PPA-LX2 (Android 10, API 29, arm64-v8a). A
       throwaway app that consumes only `library-release.aar` as a `files()`
