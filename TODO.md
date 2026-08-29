@@ -1,6 +1,7 @@
 # What's left
 
-Written 2026-08-15 as a handoff. `PERFORMANCE_PLAN.md` is the plan of record and
+Written 2026-08-15 as a handoff, item 2 and item 4½ updated 2026-08-29 after
+the first real-hardware run. `PERFORMANCE_PLAN.md` is the plan of record and
 carries the history and the reasoning; this file is only the open items and the
 things you need to know before touching the build. `PLAN.md` is gitignored,
 unmaintained, and cannot be read by anyone else — ignore it.
@@ -19,19 +20,49 @@ Central, an SPM tag), and a decision about whether the XCFramework ships in-repo
 or as a release asset. **Publishing is outward-facing — do not publish anything
 without the user asking for that specific act.**
 
-## 2. Five release-checklist items, all needing real hardware or CI
+## 2. Release checklist — the iOS half is discharged, the Android half is not
 
-Emulator and simulator work does **not** discharge these, and this week's
-numbers came from exactly there.
+Emulator and simulator work does **not** discharge these. Run on real hardware
+2026-08-29 against an iPhone 15 (iOS 26.2.1) and a PPA-LX2 (Android 10).
 
-- [ ] Android release AAR builds from a clean checkout in CI
-- [ ] Android clean app loads the AAR and does an HTTP/3 request on a real device
-- [ ] Swift live HTTP/3-only GET against a confirmed HTTP/3 endpoint
-- [ ] Swift clean app imports the package and does an HTTP/3 request
-- [ ] TLS tests pass on real devices
+- [ ] **Android release AAR builds from a clean checkout in CI.** The build
+      half is proven: a fresh clone with submodules produces a
+      byte-size-identical AAR (7,514,739). The *CI* half is not, and cannot be
+      until the commits below are pushed — CI cannot check out a tree whose
+      submodule commits only exist locally. See item 4½.
+- [ ] **Android clean app loads the AAR and does an HTTP/3 request on a real
+      device.** Blocked, not attempted: `minSdk = 33`
+      (`VaneKotlin/library/build.gradle.kts`) and the only real Android device
+      here is API 29. Needs either an API 33+ device or a decision to lower
+      minSdk — which is a trust-store and TLS-API question, not just a number.
+- [x] **Swift live HTTP/3-only GET against a confirmed HTTP/3 endpoint.**
+      Passes on the device, and on the host against `https://pie.dev`
+      (`alt-svc: h3=":443"` confirmed). Shown to discriminate: pointed at a
+      host with no h3 it fails at the QUIC handshake.
+- [x] **Swift clean app imports the package and does an HTTP/3 request.** A
+      throwaway SwiftUI app consuming VaneSwift over SPM, on the device. This
+      is the check that earned its keep twice: it caught
+      `VaneConfigurationBuilder` having no public initializer (no external
+      consumer could configure anything at all), and then that **HTTP/3 had
+      never once worked on a physical iPhone** — the platform-roots lookup was
+      filesystem-based and no iOS sandbox has those paths. Both fixed.
+- [~] **TLS tests pass on real devices.** iOS: 10/10 on the device, both
+      transports — expired, self-signed and wrong-host chains rejected by the
+      real Apple trust store, a wrong pin rejected as a pin mismatch on each
+      transport, and a correct pin accepted. Android: blocked with the item
+      above.
 
-Related: the Apple p95 QoS fix is simulator-verified only, and on-device QoS
-throttling (Low Power Mode especially) may behave differently.
+Related: the Apple p95 QoS fix is still simulator-verified only, and on-device
+QoS throttling (Low Power Mode especially) may behave differently. Nothing in
+the 2026-08-29 run touched it.
+
+**The lesson worth keeping.** Every iOS number in this repo before 2026-08-29
+came from the simulator, and the simulator runs on a Mac filesystem — so
+`/etc/ssl/cert.pem` exists there and the HTTP/3 trust lookup silently worked.
+A whole transport was broken on real hardware for the entire life of the
+project, behind a green test suite. "Simulator does not discharge this" was
+already written here; it turned out to be the single most load-bearing
+sentence in the file.
 
 ## 3. Test coverage gaps — closed 2026-08-23
 
@@ -98,14 +129,29 @@ batch is one commit set spanning core + all bindings + rebuilt artifacts.
 Still open after batch 4: nothing in this item. The knobs' remaining risk
 lives in item 2 — every new instrumented test has run on the emulator only.
 
-## 4½. Blocked on the user: the superrepo cannot push
+## 4½. Blocked on the user: nothing is pushed
 
-Submodule pushes work, but `origin/main` of the superrepo rejects pushes
-because the stored PAT lacks the `workflow` scope and five outgoing commits
-touch `.github/workflows/`. Fix one of: add the `workflow` scope to the PAT
-(then `git credential-osxkeychain erase` the stale entry), or register
-`~/.ssh/id_ed25519.pub` with the GitHub account and switch the remote to
-SSH. Until then every superrepo commit accumulates locally.
+Re-checked 2026-08-29 after `git fetch`. The five commits touching
+`.github/workflows/` that triggered the original PAT-scope rejection are no
+longer outgoing, so that specific blocker may already be gone — **untested**,
+because pushing is the user's call, not something to try and find out.
+
+What is outgoing now, all from 2026-08-29 and none of it touching
+`.github/workflows/`:
+
+| Repo | Unpushed |
+|---|---:|
+| superrepo | 4 |
+| VaneSwift | 3 |
+| vane-rs | 2 |
+| VaneKotlin | 2 |
+| vane_flutter | 1 |
+
+This is what blocks the CI half of item 2: a clean checkout from GitHub fails
+immediately with `not our ref` on the submodule commits. If the PAT still
+rejects the push, fix one of: add the `workflow` scope (then
+`git credential-osxkeychain erase` the stale entry), or register
+`~/.ssh/id_ed25519.pub` with the GitHub account and switch the remote to SSH.
 
 ## 5. Small and deferred, with reasons
 
